@@ -452,6 +452,7 @@ window.O2D = window.O2D || {};
     del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
   };
   const TOKEN_KEY = 'o2d_token_v1';
+  const LINK_KEY = 'o2d_link_code';     // staff ka apna link — phone yaad rakhta hai
   const BOOT_KEY = 'o2d_boot_v1';
   const CACHE_PREFIX = 'o2d_c1_';
   const API_URL = window.O2D_API_URL || '';
@@ -506,8 +507,12 @@ window.O2D = window.O2D || {};
   A.showLogin = function (msg) {
     A.clearLogin();
     if (loginInfoLoaded) { A.go('login', { msg: msg || '' }); return; }
+    // Staff ke apne link (?u=CODE) ka code phone mein yaad — refresh / home-screen
+    // icon / logout ke baad bhi sirf usi ka naam aaye
     let code = '';
-    try { code = new URLSearchParams(location.search).get('u') || ''; } catch (e) {}
+    try { code = (new URLSearchParams(location.search).get('u') || '').trim().toUpperCase(); } catch (e) {}
+    if (code) store.set(LINK_KEY, code);
+    else code = store.get(LINK_KEY) || '';
     A.loading(true, 'Khul raha hai...');
     A.api('loginInfo', { code: code })
       .then(function (d) {
@@ -1212,7 +1217,10 @@ window.O2D = window.O2D || {};
    Screen_Login.html  —  Login window (PMS jaisa simple)
   ============================================================
    Link kholte hi sabse pehle yahi:
-   - Staff ka APNA link (?u=...) → naam pehle se likha, sirf PIN
+   - Staff ka APNA link (?u=...) → SIRF uska naam, sirf PIN.
+     Phone yeh link yaad rakhta hai — refresh karo, home screen icon
+     se kholo, logout karo — har baar wahi ek naam (baaki naam kabhi nahi).
+     Link band ho gaya ho toh koi naam nahi, sirf "naya link mango".
    - Common link → neeche wale 3 kadam
    1. "Apna naam chuno" — dropdown (Staff tab ke Active log)
    2. PIN — 4 ank (Staff tab ke PIN column wala)
@@ -1240,6 +1248,19 @@ window.O2D = window.O2D || {};
       const last = lastName();
       const link = window.O2D_LINK && names.length === 1 ? String(window.O2D_LINK) : '';
       const firstMsg = params.msg || window.O2D_LINK_ERR || '';
+
+      // Staff ka link band ho chuka hai → koi naam nahi dikhana
+      if (window.O2D_LINK_ERR && !names.length) {
+        view.innerHTML =
+          '<div class="login-page"><div class="login-card">' +
+            '<div class="login-top"><div class="logo">RKG</div><b>RK Garg Jeans</b><small>Order To Dispatch</small></div>' +
+            '<div class="login-body" style="text-align:left">' +
+              '<h2>Yeh link band ho chuka hai</h2>' +
+              '<p style="margin-top:8px">Director se apna naya link mango aur usi link se kholo.</p>' +
+            '</div>' +
+          '</div></div>';
+        return;
+      }
 
       const nameHtml = link
         ? '<div class="field" style="margin-top:16px"><label>Aapka naam</label>' +
