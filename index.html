@@ -1,0 +1,2550 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+   Page_App.html  —  App ka dhaancha (yahi page khulta hai)
+  ============================================================
+   - Upar: RK Garg Jeans + login wale staff ka naam
+   - Beech: screen (Login / Mera Kaam / Naya Order ...)
+   - Neeche: tabs (staff ke role ke hisaab se)
+
+   Screens alag files mein hain (Screen_...). Jo file abhi nahi
+   bani, woh apne aap chhoot jaati hai — app phir bhi khulega.
+   Nayi screen file Apps Script mein jodte hi app mein aa jayegi,
+   is file ko badalne ki zaroorat nahi.
+  ============================================================
+-->
+<html lang="hi">
+<head>
+  
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="theme-color" content="#1E3A5F">
+  <title>RK Garg Jeans — Order To Dispatch</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <!--
+  ============================================================
+   Design_Style.html  —  O2D Web App ka rang-roop (CSS)
+  ============================================================
+   Company software jaisa saaf, professional look:
+   - Safed panels, patli border, halki shadow
+   - Computer pe LEFT menu (sidebar), phone pe NEECHE tabs
+   - Navy blue company rang, status ke liye laal / peela / hara / neela
+   - Inter font, numbers seedhi line mein
+  ============================================================
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Company */
+    --brand: #1E3A5F;
+    --brand-dark: #152A45;
+    --brand-tint: #EEF3F9;
+    --gold: #C9962B;
+
+    /* Surface */
+    --bg: #F3F5F8;
+    --surface: #FFFFFF;
+    --border: #E1E6EC;
+    --border-strong: #CBD3DD;
+
+    /* Text */
+    --text: #1A2433;
+    --text-2: #536173;
+    --text-3: #8A96A6;
+
+    /* Status */
+    --red: #C5221F;    --red-bg: #FCEBEA;
+    --amber: #B06F00;  --amber-bg: #FFF4DC;
+    --green: #18794E;  --green-bg: #E5F4EC;
+    --blue: #1D63C9;   --blue-bg: #E7F0FD;
+    --grey: #6B7684;   --grey-bg: #EEF1F4;
+
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
+    --tap: 48px;
+    --side: 232px;
+    --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--bg);
+    font-feature-settings: 'tnum' 1, 'cv11' 1;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding-bottom: calc(68px + env(safe-area-inset-bottom));
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+  /* ============ TOP BAR ============ */
+  .topbar {
+    position: sticky; top: 0; z-index: 30;
+    height: 60px; display: flex; align-items: center; gap: 12px;
+    padding: 0 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .logo {
+    width: 36px; height: 36px; border-radius: 8px; flex: none;
+    background: var(--brand); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px; letter-spacing: .5px;
+    box-shadow: inset 0 -3px 0 var(--gold);
+  }
+  .brand { line-height: 1.15; min-width: 0; }
+  .brand b { display: block; font-size: 15px; font-weight: 700; color: var(--brand); white-space: nowrap; }
+  .brand small { display: block; font-size: 12px; color: var(--text-2); white-space: nowrap; }
+  .topbar .spacer { flex: 1; }
+  .who {
+    display: flex; align-items: center; gap: 8px; max-width: 50%;
+    border: 1px solid var(--border); background: var(--surface);
+    border-radius: 999px; padding: 4px 12px 4px 4px; cursor: pointer;
+  }
+  .who:empty { display: none; }
+  .who .av {
+    width: 28px; height: 28px; border-radius: 50%; flex: none;
+    background: var(--brand-tint); color: var(--brand);
+    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px;
+  }
+  .who .nm { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .who .rl { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+  .who .tx { line-height: 1.15; text-align: left; min-width: 0; }
+
+  /* ============ MAIN ============ */
+  #view { max-width: 980px; margin: 0 auto; padding: 20px 16px; }
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .screen-title { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -.2px; }
+  .screen-sub { color: var(--text-2); margin: 2px 0 0; font-size: 14px; }
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow);
+    padding: 16px; margin-bottom: 16px;
+  }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; margin: -2px 0 12px; }
+  .panel-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+
+  /* ============ NAVIGATION ============ */
+  /* Phone: neeche tabs */
+  .tabs {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    display: flex; justify-content: space-around;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
+  }
+  .tabs:empty { display: none; }
+  .tab {
+    flex: 1; min-height: 56px; border: 0; background: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    color: var(--text-3); font-size: 11.5px; font-weight: 600; border-radius: var(--radius);
+    position: relative;
+  }
+  .tab svg { width: 22px; height: 22px; }
+  .tab.active { color: var(--brand); }
+  .tab.active::before {
+    content: ''; position: absolute; top: -4px; left: 28%; right: 28%; height: 3px;
+    background: var(--brand); border-radius: 0 0 3px 3px;
+  }
+  .tab .badge {
+    position: absolute; top: 5px; left: calc(50% + 6px);
+    background: var(--red); color: #fff; font-size: 10.5px; font-weight: 700; line-height: 17px;
+    min-width: 17px; padding: 0 5px; border-radius: 9px; text-align: center;
+  }
+
+  /* Computer: left menu */
+  @media (min-width: 900px) {
+    body { padding-bottom: 0; padding-left: var(--side); }
+    .topbar { margin-left: calc(-1 * var(--side)); padding-left: 20px; }
+    .tabs {
+      top: 60px; bottom: 0; left: 0; right: auto; width: var(--side);
+      flex-direction: column; justify-content: flex-start; gap: 2px;
+      border-top: 0; border-right: 1px solid var(--border); padding: 16px 12px;
+    }
+    .tab {
+      flex: none; min-height: 42px; flex-direction: row; justify-content: flex-start; gap: 12px;
+      padding: 0 12px; font-size: 14px; color: var(--text-2);
+    }
+    .tab:hover { background: var(--bg); }
+    .tab.active { background: var(--brand-tint); color: var(--brand); }
+    .tab.active::before { top: 8px; bottom: 8px; left: -12px; right: auto; width: 3px; height: auto; border-radius: 0 3px 3px 0; }
+    .tab .badge { position: static; margin-left: auto; }
+    #view { padding: 28px 32px; }
+  }
+
+  /* ============ BUTTONS ============ */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: var(--tap); padding: 0 18px; border: 1px solid transparent; border-radius: var(--radius);
+    font-weight: 600; font-size: 15px; cursor: pointer; user-select: none; white-space: nowrap;
+    transition: background .12s, border-color .12s;
+  }
+  .btn[disabled] { opacity: .5; pointer-events: none; }
+  .btn-main { background: var(--brand); color: #fff; }
+  .btn-main:hover { background: var(--brand-dark); }
+  .btn-go { background: var(--green); color: #fff; }
+  .btn-go:hover { filter: brightness(.95); }
+  .btn-warn { background: var(--amber-bg); color: var(--amber); border-color: #F1D59A; }
+  .btn-danger { background: var(--surface); color: var(--red); border-color: #F2C3C0; }
+  .btn-ghost { background: var(--surface); color: var(--text); border-color: var(--border-strong); }
+  .btn-ghost:hover { background: var(--bg); }
+  .btn-sm { min-height: 36px; padding: 0 12px; font-size: 13.5px; }
+  .btn-block { width: 100%; }
+  .btn-row { display: flex; gap: 10px; }
+  .btn-row > .btn { flex: 1; }
+
+  /* ============ FORM ============ */
+  .field { margin-bottom: 16px; }
+  .field > label { display: block; font-weight: 600; font-size: 13.5px; margin-bottom: 6px; color: var(--text); }
+  .field .req { color: var(--red); margin-left: 2px; }
+  .field .hint { font-size: 12.5px; color: var(--text-2); margin-top: 5px; }
+  .input, .select, .textarea {
+    width: 100%; min-height: var(--tap); padding: 10px 12px;
+    border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface);
+    font-size: 15px; transition: border-color .12s, box-shadow .12s;
+  }
+  .textarea { min-height: 88px; resize: vertical; }
+  .input:focus, .select:focus, .textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(30,58,95,.12); outline: none; }
+  .form-grid { display: grid; grid-template-columns: 1fr; gap: 0 16px; }
+  @media (min-width: 700px) { .form-grid { grid-template-columns: 1fr 1fr; } .form-grid .full { grid-column: 1 / -1; } }
+
+  .choices { display: flex; flex-wrap: wrap; gap: 8px; }
+  .choice {
+    min-height: 42px; padding: 8px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius);
+    background: var(--surface); font-weight: 500; font-size: 14px; cursor: pointer;
+  }
+  .choice:hover { border-color: var(--brand); }
+  .choice.on { border-color: var(--brand); background: var(--brand-tint); color: var(--brand); font-weight: 600; box-shadow: inset 0 0 0 1px var(--brand); }
+
+  .yesno { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .yesno .choice { min-height: 64px; font-size: 17px; font-weight: 700; }
+  .yesno .choice.on.yes { border-color: var(--green); background: var(--green-bg); color: var(--green); box-shadow: inset 0 0 0 1px var(--green); }
+  .yesno .choice.on.no  { border-color: var(--red); background: var(--red-bg); color: var(--red); box-shadow: inset 0 0 0 1px var(--red); }
+
+  /* ============ PHOTO ============ */
+  .photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
+  .photo-thumb, .photo-add { aspect-ratio: 1; border-radius: var(--radius); position: relative; overflow: hidden; }
+  .photo-thumb { border: 1px solid var(--border); background: var(--grey-bg); }
+  .photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photo-thumb .pdf { display: flex; height: 100%; align-items: center; justify-content: center; font-weight: 700; color: var(--red); }
+  .photo-thumb .x {
+    position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border-radius: 50%;
+    border: 0; background: rgba(16,24,40,.65); color: #fff; font-size: 15px; line-height: 26px; cursor: pointer;
+  }
+  .photo-add {
+    border: 1.5px dashed var(--border-strong); background: var(--surface);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    color: var(--brand); font-size: 12px; font-weight: 600; cursor: pointer; text-align: center; padding: 4px;
+  }
+  .photo-add:hover { border-color: var(--brand); background: var(--brand-tint); }
+  .photo-add svg { width: 24px; height: 24px; }
+  .photo-add input { display: none; }
+
+  /* ============ ORDER CARD ============ */
+  .slip {
+    position: relative; display: block; width: 100%; text-align: left; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    box-shadow: var(--shadow); padding: 14px 16px 14px 18px; margin-bottom: 10px;
+    overflow: hidden; transition: border-color .12s;
+  }
+  .slip:hover { border-color: var(--border-strong); }
+  .slip::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--grey); }
+  .slip.red::before    { background: var(--red); }
+  .slip.yellow::before { background: var(--amber); }
+  .slip.green::before  { background: var(--green); }
+  .slip.wait::before   { background: var(--blue); }
+  .slip.done::before   { background: var(--brand); }
+  .slip-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .oid { font-weight: 600; font-size: 13px; color: var(--text-2); letter-spacing: .2px; }
+  .slip-cust { font-weight: 600; font-size: 16px; margin: 4px 0 2px; color: var(--text); }
+  .slip-meta { color: var(--text-2); font-size: 13.5px; }
+  .slip-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-2); }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+    font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    background: var(--grey-bg); color: var(--grey);
+  }
+  .pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.red    { background: var(--red-bg); color: var(--red); }
+  .pill.yellow { background: var(--amber-bg); color: var(--amber); }
+  .pill.green  { background: var(--green-bg); color: var(--green); }
+  .pill.wait   { background: var(--blue-bg); color: var(--blue); }
+  .pill.done   { background: var(--brand-tint); color: var(--brand); }
+
+  .group-head { display: flex; align-items: center; justify-content: space-between; margin: 24px 0 10px; }
+  .group-head:first-child { margin-top: 0; }
+  .group-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .count { font-weight: 600; font-size: 13px; color: var(--text-2); background: var(--grey-bg); padding: 2px 10px; border-radius: 999px; }
+
+  /* ============ KPI + TABLE (dashboard) ============ */
+  .kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
+  @media (min-width: 700px) { .kpis { grid-template-columns: repeat(4, 1fr); } }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 14px 16px; }
+  .kpi .k-label { font-size: 12.5px; color: var(--text-2); font-weight: 500; }
+  .kpi .k-val { font-size: 26px; font-weight: 700; margin-top: 2px; letter-spacing: -.5px; }
+  .kpi.red .k-val { color: var(--red); }
+  .kpi.green .k-val { color: var(--green); }
+
+  .table-wrap { overflow-x: auto; margin: 0 -16px; padding: 0 16px; }
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .tbl th { text-align: left; font-weight: 600; font-size: 12.5px; color: var(--text-2); padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--bg); white-space: nowrap; }
+  .tbl td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .tbl tr:last-child td { border-bottom: 0; }
+  .tbl .num { text-align: right; font-weight: 600; }
+
+  /* ============ EMPTY / NOTE ============ */
+  .empty { text-align: center; color: var(--text-2); padding: 48px 16px; }
+  .empty b { display: block; font-size: 16px; color: var(--text); margin-bottom: 4px; font-weight: 600; }
+  .note { padding: 12px 14px; border-radius: var(--radius); background: var(--brand-tint); color: var(--brand); margin-bottom: 16px; font-size: 14px; border: 1px solid #D5E0EE; }
+  .note.warn { background: var(--amber-bg); color: var(--amber); border-color: #F1D59A; }
+  .note.err  { background: var(--red-bg); color: var(--red); border-color: #F2C3C0; }
+
+  /* ============ SHEET (popup) ============ */
+  .sheet-bg { position: fixed; inset: 0; background: rgba(16,24,40,.45); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
+  .sheet {
+    width: 100%; max-width: 560px; max-height: 92vh; overflow: auto;
+    background: var(--surface); border-radius: 16px 16px 0 0; padding: 20px 18px calc(20px + env(safe-area-inset-bottom));
+    animation: up .16s ease-out;
+  }
+  .sheet h3 { margin: 0 0 14px; font-size: 18px; font-weight: 700; }
+  @media (min-width: 700px) { .sheet-bg { align-items: center; } .sheet { border-radius: 16px; } }
+  @keyframes up { from { transform: translateY(24px); opacity: .5; } to { transform: none; opacity: 1; } }
+
+  /* ============ TOAST + LOADER ============ */
+  #toast {
+    position: fixed; left: 16px; right: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 70;
+    max-width: 480px; margin: 0 auto; padding: 12px 16px; border-radius: var(--radius);
+    background: var(--text); color: #fff; font-weight: 500; font-size: 14px; display: none;
+    box-shadow: 0 8px 24px rgba(16,24,40,.2);
+  }
+  #toast.show { display: block; animation: up .16s ease-out; }
+  #toast.ok { background: var(--green); }
+  #toast.err { background: var(--red); }
+  @media (min-width: 900px) { #toast { bottom: 24px; left: calc(var(--side) + 16px); } }
+  #loader { position: fixed; inset: 0; z-index: 80; display: none; align-items: center; justify-content: center; background: rgba(243,245,248,.75); }
+  #loader.show { display: flex; }
+  .spin { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--border); border-top-color: var(--brand); animation: rot .7s linear infinite; }
+  #loader .txt { margin-top: 10px; font-weight: 500; font-size: 14px; color: var(--text-2); text-align: center; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+
+  /* ============ LOGIN ============ */
+  body.is-login { padding-left: 0 !important; padding-bottom: 0; }
+  body.is-login .topbar { display: none; }
+  .login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; background: var(--bg); }
+  .login-card {
+    width: 100%; max-width: 380px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; box-shadow: 0 12px 32px rgba(16,24,40,.08); overflow: hidden;
+  }
+  .login-top { background: var(--brand); color: #fff; padding: 22px 24px 20px; border-bottom: 3px solid var(--gold); }
+  .login-top .logo { background: #fff; color: var(--brand); width: 40px; height: 40px; font-size: 14px; box-shadow: none; margin-bottom: 12px; }
+  .login-top b { display: block; font-size: 18px; font-weight: 700; }
+  .login-top small { font-size: 13px; opacity: .8; }
+  .login-body { padding: 22px 24px 24px; text-align: center; }
+  .login-body h2 { margin: 0; font-size: 17px; font-weight: 600; }
+  .login-body p { margin: 4px 0 0; color: var(--text-2); font-size: 13.5px; }
+  @keyframes shake { 25% { transform: translateX(-7px); } 75% { transform: translateX(7px); } }
+  .pin-msg { min-height: 20px; color: var(--red); font-weight: 500; font-size: 13.5px; margin: 8px 0 12px; }
+  .pin-input {
+    width: 100%; height: 56px; text-align: center;
+    font-size: 26px; font-weight: 600; letter-spacing: 18px; padding-left: 18px;
+    border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface);
+    margin-top: 18px;
+  }
+  .pin-input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(30,58,95,.12); outline: none; }
+  .pin-input.shake { animation: shake .35s; border-color: var(--red); }
+  .pin-input::placeholder { letter-spacing: 18px; color: var(--border-strong); }
+  .login-foot { padding: 14px 24px; border-top: 1px solid var(--border); background: var(--bg); font-size: 12.5px; color: var(--text-2); text-align: center; }
+
+  /* ============ CHHOTE HELPERS ============ */
+  .muted { color: var(--text-2); }
+  .small { font-size: 13px; }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .between { justify-content: space-between; }
+  .mt { margin-top: 16px; }
+  .hide { display: none !important; }
+  .list-plain { list-style: none; padding: 0; margin: 0; }
+  .list-plain li { padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .list-plain li:last-child { border-bottom: 0; }
+</style>
+
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="logo">RKG</div>
+    <div class="brand"><b>RK Garg Jeans</b><small>Order To Dispatch</small></div>
+    <div class="spacer"></div>
+    <button type="button" class="who" id="who" onclick="O2D.go('more')"></button>
+  </header>
+
+  <main id="view">
+    <div class="empty"><b>Khul raha hai...</b></div>
+  </main>
+
+  <nav class="tabs" id="tabs"></nav>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto"></div><div class="txt"></div></div></div>
+
+  <script src="config.js"></script>
+  <script>
+    window.O2D_LINK = ''; window.O2D_LINK_ERR = ''; window.O2D_URL = ''; window.O2D_NAMES = [];
+    if (!window.O2D_API_URL || !/^https:\/\/script\.google\.com\/.+\/exec$/.test(window.O2D_API_URL)) {
+      window.O2D_CONFIG_ERROR = 'config.js mein Apps Script ka /exec link sahi nahi hai. GitHub pe config.js kholke link daalo.';
+    }
+  </script>
+
+  <!--
+  ============================================================
+   Js_Api.html  —  App ka dimaag (screen wala JavaScript)
+  ============================================================
+   1. O2D.api(kaam, data) — server se baat karne ka EK hi raasta.
+      - Apps Script ke link pe: google.script.run
+      - Vercel pe (window.O2D_API_URL set ho): internet se Apps Script
+        ke doPost tak. Baaki screens dono jagah same.
+      O2D.fast — pichla data turant dikhao, taaza peeche se lao
+      (phone mein yaad rehta hai, isliye app turant khulta hai)
+   2. Login (naam + PIN) yaad rakhna (phone mein 30 din), logout
+   3. Screens ke beech aana-jaana (O2D.go) aur neeche ke tabs
+   4. Photo ko chhota karke bhejna (1600px, taaki jaldi upload ho)
+      Video tukdon mein (4 MB) Drive tak — progress ke saath
+   5. Toast message, loading, "Aur" screen (PIN badlo, logout)
+  ============================================================
+-->
+<script>
+window.O2D = window.O2D || {};
+(function (A) {
+  'use strict';
+
+  A.screens = A.screens || {};
+  A.staff = null;
+  A.config = null;
+  A.current = null;
+
+  /* ---------------- Chhote helpers ---------------- */
+
+  A.$ = function (sel, root) { return (root || document).querySelector(sel); };
+  A.$$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+  A.esc = function (s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  };
+  A.uid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 10); };
+
+  const store = {
+    get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+    del: function (k) { try { localStorage.removeItem(k); } catch (e) {} }
+  };
+  const TOKEN_KEY = 'o2d_token_v1';
+  const BOOT_KEY = 'o2d_boot_v1';
+  const CACHE_PREFIX = 'o2d_c1_';
+  const API_URL = window.O2D_API_URL || '';
+  let memToken = '';
+
+  /* ---------------- Toast + loading ---------------- */
+
+  let toastTimer = null;
+  A.toast = function (msg, type) {
+    const t = A.$('#toast');
+    if (!t) return;
+    t.textContent = msg;
+    t.className = 'show ' + (type || '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.className = ''; }, type === 'err' ? 5000 : 2800);
+  };
+
+  A.loading = function (on, text) {
+    const l = A.$('#loader');
+    if (!l) return;
+    A.$('.txt', l).textContent = text || '';
+    l.classList.toggle('show', !!on);
+  };
+
+  /* ---------------- Login yaad rakhna ---------------- */
+
+  A.token = function () { return memToken || store.get(TOKEN_KEY) || ''; };
+
+  A.setLogin = function (token) {
+    memToken = token;
+    store.set(TOKEN_KEY, token);
+  };
+
+  /** Logout — wapas login window (phone mein rakha purana data bhi saaf) */
+  A.clearLogin = function () {
+    memToken = '';
+    store.del(TOKEN_KEY);
+    store.del(BOOT_KEY);
+    try {
+      Object.keys(localStorage).forEach(function (k) { if (k.indexOf(CACHE_PREFIX) === 0) localStorage.removeItem(k); });
+    } catch (e) {}
+    A.director = null;
+    A.staff = null;
+    A.config = null;
+  };
+
+  /**
+   * Login window kholna. Vercel pe pehle naam ki list server se laate hain
+   * (Apps Script wale link pe list page ke saath hi aa jaati hai).
+   */
+  let loginInfoLoaded = !API_URL;
+  A.showLogin = function (msg) {
+    A.clearLogin();
+    if (loginInfoLoaded) { A.go('login', { msg: msg || '' }); return; }
+    let code = '';
+    try { code = new URLSearchParams(location.search).get('u') || ''; } catch (e) {}
+    A.loading(true, 'Khul raha hai...');
+    A.api('loginInfo', { code: code })
+      .then(function (d) {
+        A.loading(false);
+        loginInfoLoaded = true;
+        window.O2D_NAMES = d.names || [];
+        window.O2D_LINK = d.linkCode || '';
+        window.O2D_LINK_ERR = d.linkError || '';
+        A.go('login', { msg: msg || '' });
+      })
+      .catch(function (e) {
+        A.loading(false);
+        A.$('#view').innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>' +
+          '<button class="btn btn-main btn-block" onclick="O2D.showLogin()">Dobara try karo</button>';
+      });
+  };
+
+  /** "Aapka naam" dropdown — is kaam pe tick wale staff */
+  A.namesFor = function (stepKey) {
+    const s = (A.config && A.config.steps || []).filter(function (x) { return x.key === stepKey; })[0];
+    return s ? (s.staffNames || []) : [];
+  };
+
+  /** Phone pichli baar is kaam pe chuna naam yaad rakhta hai */
+  A.lastName = function (stepKey, value) {
+    const k = 'o2d_name_' + stepKey;
+    if (value === undefined) return store.get(k) || '';
+    store.set(k, value);
+  };
+
+  /**
+   * "Kaam kisne kiya" dropdown — SIRF Director / PC ke liye
+   * (staff ka naam login se apne aap jaata hai, unhe kuch nahi chunna)
+   */
+  A.nameSelectHtml = function (stepKey, id, label) {
+    if (!A.director) return '';
+    const names = A.namesFor(stepKey);
+    return '<div class="field"><label for="' + id + '">' + A.esc(label || 'Kaam kisne kiya') + '</label>' +
+      '<select class="select" id="' + id + '"><option value="">' + A.esc(A.director.name) + ' (main khud)</option>' +
+      names.map(function (n) { return '<option value="' + A.esc(n) + '">' + A.esc(n) + '</option>'; }).join('') +
+      '</select></div>';
+  };
+
+  /** Login wale staff ka yeh kaam hai? */
+  A.canDo = function (stepKey) {
+    if (!A.staff) return false;
+    if (A.staff.isAdmin) return true;
+    return (A.staff.steps || []).indexOf(stepKey) >= 0;
+  };
+
+  /** Token kis link code ka hai (phone pe kisi aur ka link khula ho toh pata chale) */
+  function tokenLinkCode(tok) {
+    try {
+      const p = String(tok).split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
+      const txt = decodeURIComponent(escape(atob(p)));
+      return (txt.split('|')[1] || '').toUpperCase();
+    } catch (e) { return ''; }
+  }
+
+  /* ---------------- SERVER SE BAAT (ek hi raasta) ---------------- */
+
+  A.api = function (action, payload) {
+    return new Promise(function (resolve, reject) {
+      function handle(r) {
+        if (!r) return reject(new Error('Server se jawab nahi aaya. Dobara try karo.'));
+        if (r.ok) return resolve(r.data);
+        if (r.relogin && action !== 'login' && action !== 'loginLink') A.showLogin(r.error);
+        reject(new Error(r.error || 'Kuch galat ho gaya.'));
+      }
+      function fail(e) {
+        const m = String((e && e.message) || e || '');
+        reject(new Error(/network|NetworkError|Failed to fetch|Load failed/i.test(m)
+          ? 'Internet nahi chal raha. Net check karke dobara try karo.'
+          : (m || 'Kuch galat ho gaya. Dobara try karo.')));
+      }
+
+      if (API_URL) {
+        // Vercel → Apps Script (text/plain = bina extra "preflight" ke, jaldi)
+        const body = JSON.stringify({ token: A.token(), action: action,
+          payload: Object.assign({ appUrl: location.origin + '/' }, payload || {}) });
+        fetch(API_URL, { method: 'POST', body: body, redirect: 'follow' })
+          .then(function (res) {
+            if (!res.ok) throw new Error('Server ne mana kar diya (' + res.status + '). Thodi der baad try karo.');
+            return res.json().catch(function () {
+              throw new Error('Server ka jawab samajh nahi aaya. Apps Script ka "Who has access" = Anyone check karo.');
+            });
+          })
+          .then(handle, fail);
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(handle)
+        .withFailureHandler(fail)
+        .o2dApi(A.token(), action, payload || {});
+    });
+  };
+
+  /* ---------------- Turant dikhana (pichla data) ---------------- */
+
+  function cacheKey(action, payload) {
+    return CACHE_PREFIX + (A.staff ? A.staff.name : '') + '|' + action + '|' + JSON.stringify(payload || {});
+  }
+
+  let refreshCount = 0;
+  function refreshing(on) {
+    refreshCount = Math.max(0, refreshCount + (on ? 1 : -1));
+    let el = A.$('#o2d-refresh');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'o2d-refresh';
+      el.setAttribute('role', 'status');
+      el.style.cssText = 'position:fixed;top:calc(env(safe-area-inset-top,0px) + 70px);left:50%;transform:translateX(-50%);' +
+        'background:var(--brand);color:#fff;font-size:12.5px;font-weight:600;padding:5px 12px;border-radius:999px;' +
+        'z-index:60;box-shadow:0 2px 8px rgba(0,0,0,.15);display:none';
+      el.textContent = 'Taaza ho raha hai…';
+      document.body.appendChild(el);
+    }
+    el.style.display = refreshCount ? 'block' : 'none';
+  }
+
+  /**
+   * Pichli baar ka data turant dikhao (agar phone mein hai), aur saath hi
+   * server se taaza lao — aate hi screen badal jaati hai.
+   *  onData(data, isOld)
+   *  showLoader = false → peeche ka taaza (60 sec wala) — purana dobara nahi dikhate
+   */
+  A.fast = function (action, payload, onData, loadingText, showLoader) {
+    const key = cacheKey(action, payload);
+    let old = null;
+    if (showLoader !== false) {
+      try { old = JSON.parse(store.get(key) || 'null'); } catch (e) { old = null; }
+    }
+    if (old && old.d !== undefined) { onData(old.d, true); refreshing(true); }
+    const p = (old || showLoader === false) ? A.api(action, payload) : A.call(action, payload, loadingText);
+    return p.then(function (d) {
+      if (old) refreshing(false);
+      store.set(key, JSON.stringify({ t: Date.now(), d: d }));
+      onData(d, false);
+      return d;
+    }, function (e) {
+      if (old) { refreshing(false); A.toast(e.message, 'err'); return null; }   // purana data screen pe rehne do
+      throw e;
+    });
+  };
+
+  /** Loading ke saath api — galti pe toast */
+  A.call = function (action, payload, loadingText) {
+    A.loading(true, loadingText || 'Ek second...');
+    return A.api(action, payload)
+      .then(function (d) { A.loading(false); return d; })
+      .catch(function (e) { A.loading(false); A.toast(e.message, 'err'); throw e; });
+  };
+
+  /* ---------------- Photo chhota karna ---------------- */
+
+  /** File → { name, mimeType, data(base64), preview } */
+  A.readPhoto = function (file) {
+    return new Promise(function (resolve, reject) {
+      const maxMb = (A.config && A.config.photo && A.config.photo.maxMb) || 10;
+      if (file.type === 'application/pdf') {
+        if (file.size > maxMb * 1048576) return reject(new Error('PDF ' + maxMb + ' MB se chhoti honi chahiye.'));
+        const fr = new FileReader();
+        fr.onload = function () { resolve({ name: file.name, mimeType: 'application/pdf', data: fr.result, preview: '', isPdf: true }); };
+        fr.onerror = function () { reject(new Error('File nahi padh paye.')); };
+        return fr.readAsDataURL(file);
+      }
+      if (!/^image\//.test(file.type)) return reject(new Error('Sirf photo ya PDF daal sakte ho.'));
+
+      const fr = new FileReader();
+      fr.onerror = function () { reject(new Error('Photo nahi padh paye.')); };
+      fr.onload = function () {
+        const img = new Image();
+        img.onload = function () {
+          const MAX = 1600;
+          let w = img.naturalWidth, h = img.naturalHeight;
+          if (w > MAX || h > MAX) { const s = MAX / Math.max(w, h); w = Math.round(w * s); h = Math.round(h * s); }
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(img, 0, 0, w, h);
+          const data = c.toDataURL('image/jpeg', 0.78);
+          resolve({ name: (file.name || 'photo').replace(/\.\w+$/, '') + '.jpg', mimeType: 'image/jpeg', data: data, preview: data });
+        };
+        img.onerror = function () {
+          // Phone ki photo (HEIC) browser na khol paye toh waise hi bhejo
+          if (file.size > maxMb * 1048576) return reject(new Error('Photo bahut badi hai.'));
+          resolve({ name: file.name, mimeType: file.type, data: fr.result, preview: '' });
+        };
+        img.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  };
+
+  /** Photo ko 90° ghumana (sirf photo, PDF nahi) */
+  A.rotatePhoto = function (p) {
+    return new Promise(function (resolve, reject) {
+      if (!p.preview || p.isPdf) return reject(new Error('Yeh file ghuma nahi sakte.'));
+      const img = new Image();
+      img.onload = function () {
+        const c = document.createElement('canvas');
+        c.width = img.naturalHeight; c.height = img.naturalWidth;
+        const ctx = c.getContext('2d');
+        ctx.translate(c.width / 2, c.height / 2);
+        ctx.rotate(Math.PI / 2);
+        ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+        const data = c.toDataURL('image/jpeg', 0.82);
+        resolve({ name: p.name, mimeType: 'image/jpeg', data: data, preview: data });
+      };
+      img.onerror = function () { reject(new Error('Photo ghuma nahi paye.')); };
+      img.src = p.preview;
+    });
+  };
+
+  /** Chhupa hua file input — camera ya gallery khulta hai */
+  function pickFiles(mode, multiple, onFiles) {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    if (mode === 'camera') { inp.accept = 'image/*'; inp.setAttribute('capture', 'environment'); }
+    else { inp.accept = 'image/*,application/pdf'; if (multiple) inp.multiple = true; }
+    inp.style.display = 'none';
+    inp.onchange = function () {
+      const files = Array.prototype.slice.call(inp.files || []);
+      if (inp.parentNode) inp.parentNode.removeChild(inp);
+      if (files.length) onFiles(files);
+    };
+    document.body.appendChild(inp);
+    inp.click();
+  }
+
+  const CAM_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
+  const GAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/></svg>';
+
+  /**
+   * Photo ka dibba:
+   *  - "Photo khicho" (camera) + "Gallery se" (photo / PDF, kai ek saath)
+   *  - li hui photo pe tap → badi dikhegi: Ghumao / Badlo / Hatao
+   *  - kone pe × se jaldi hatao
+   * box = khaali div, opts = { max, label }
+   * Wapas: { get: () => [photos], count, clear }
+   */
+  A.photoPicker = function (box, opts) {
+    opts = opts || {};
+    const max = opts.max || (A.config && A.config.photo.maxPerField) || 10;
+    const list = [];
+    box.classList.add('photos');
+
+    function addFiles(files, replaceIndex) {
+      const take = replaceIndex === undefined ? files.slice(0, max - list.length) : files.slice(0, 1);
+      if (!take.length) return;
+      A.loading(true, 'Photo taiyar ho rahi hai...');
+      Promise.all(take.map(A.readPhoto))
+        .then(function (ps) {
+          if (replaceIndex !== undefined) list[replaceIndex] = ps[0];
+          else ps.forEach(function (p) { list.push(p); });
+          A.loading(false);
+          draw();
+        })
+        .catch(function (err) { A.loading(false); A.toast(err.message, 'err'); draw(); });
+    }
+
+    function openPhoto(i) {
+      const p = list[i];
+      A.sheet(
+        '<h3>Photo ' + (i + 1) + '</h3>' +
+        '<div style="background:var(--grey-bg);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;min-height:180px;margin-bottom:14px;overflow:hidden">' +
+          (p.preview ? '<img alt="" src="' + p.preview + '" style="max-width:100%;max-height:60vh;display:block">'
+                     : '<div class="pdf" style="font-weight:700;color:var(--red);padding:40px">' + (p.isPdf ? 'PDF file' : 'Photo') + '</div>') +
+        '</div>' +
+        '<div class="btn-row" style="flex-wrap:wrap">' +
+          (p.preview ? '<button type="button" class="btn btn-ghost" id="ph-rot">Ghumao</button>' : '') +
+          '<button type="button" class="btn btn-ghost" id="ph-cam">Dobara khicho</button>' +
+          '<button type="button" class="btn btn-ghost" id="ph-gal">Gallery se badlo</button>' +
+        '</div>' +
+        '<button type="button" class="btn btn-danger btn-block" id="ph-del" style="margin-top:10px">Hatao</button>',
+        function (el, close) {
+          const rot = A.$('#ph-rot', el);
+          if (rot) rot.onclick = function () {
+            A.rotatePhoto(list[i]).then(function (np) {
+              list[i] = np;
+              A.$('img', el).src = np.preview;
+              draw();
+            }).catch(function (e) { A.toast(e.message, 'err'); });
+          };
+          A.$('#ph-cam', el).onclick = function () { close(); pickFiles('camera', false, function (f) { addFiles(f, i); }); };
+          A.$('#ph-gal', el).onclick = function () { close(); pickFiles('gallery', false, function (f) { addFiles(f, i); }); };
+          A.$('#ph-del', el).onclick = function () { list.splice(i, 1); close(); draw(); };
+        });
+    }
+
+    function draw() {
+      box.innerHTML = '';
+      list.forEach(function (p, i) {
+        const d = document.createElement('div');
+        d.className = 'photo-thumb';
+        d.style.cursor = 'pointer';
+        d.innerHTML = (p.preview ? '<img alt="" src="' + p.preview + '">' : '<div class="pdf">' + (p.isPdf ? 'PDF' : 'Photo') + '</div>') +
+                      '<button type="button" class="x" aria-label="Hatao">×</button>' +
+                      '<span style="position:absolute;left:0;right:0;bottom:0;background:rgba(16,24,40,.55);color:#fff;font-size:11px;text-align:center;padding:2px 0">Tap: badlo</span>';
+        d.onclick = function (e) { if (e.target.classList.contains('x')) return; openPhoto(i); };
+        A.$('.x', d).onclick = function (e) { e.stopPropagation(); list.splice(i, 1); draw(); };
+        box.appendChild(d);
+      });
+      if (list.length < max) {
+        const cam = document.createElement('button');
+        cam.type = 'button';
+        cam.className = 'photo-add';
+        cam.innerHTML = CAM_ICON + '<span>Photo khicho</span>';
+        cam.onclick = function () { pickFiles('camera', false, function (f) { addFiles(f); }); };
+        box.appendChild(cam);
+
+        const gal = document.createElement('button');
+        gal.type = 'button';
+        gal.className = 'photo-add';
+        gal.innerHTML = GAL_ICON + '<span>Gallery se</span>';
+        gal.onclick = function () { pickFiles('gallery', true, function (f) { addFiles(f); }); };
+        box.appendChild(gal);
+      }
+    }
+    draw();
+    return {
+      get: function () { return list.map(function (p) { return { name: p.name, mimeType: p.mimeType, data: p.data }; }); },
+      count: function () { return list.length; },
+      clear: function () { list.length = 0; draw(); }
+    };
+  };
+
+  /* ---------------- Video (Packing) ---------------- */
+
+  const VID_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/></svg>';
+  const VID_GAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/></svg>';
+
+  /** Video kitne second ki hai (phone na bata paaye toh 0) */
+  function videoSeconds(file) {
+    return new Promise(function (resolve) {
+      let url = '';
+      try { url = URL.createObjectURL(file); } catch (e) { return resolve(0); }
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.muted = true;
+      const done = function (s) { try { URL.revokeObjectURL(url); } catch (e) {} resolve(s); };
+      const t = setTimeout(function () { done(0); }, 6000);
+      v.onloadedmetadata = function () { clearTimeout(t); done(isFinite(v.duration) ? v.duration : 0); };
+      v.onerror = function () { clearTimeout(t); done(0); };
+      v.src = url;
+    });
+  }
+
+  /** File ka ek tukda → base64 */
+  function readChunk(file, start, end) {
+    return new Promise(function (resolve, reject) {
+      const fr = new FileReader();
+      fr.onload = function () { resolve(String(fr.result).split(',')[1] || ''); };
+      fr.onerror = function () { reject(new Error('Video padh nahi paye.')); };
+      fr.readAsDataURL(file.slice(start, end));
+    });
+  }
+
+  function mmss(s) { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+
+  /**
+   * Video ka dibba (Packing):
+   *  - "Video banao" (camera) + "Gallery se video" (kai ek saath)
+   *  - chunte hi upload shuru, har video pe % dikhta hai
+   *  - × se hatao (Drive se bhi hat jaati hai)
+   * opts = { orderId, max, maxSeconds, maxMb }
+   * Wapas: { get, busy, count }
+   */
+  A.videoPicker = function (box, opts) {
+    opts = opts || {};
+    const max = opts.max || 3, maxSec = opts.maxSeconds || 60, maxMb = opts.maxMb || 200;
+    const list = [];
+    let running = false;
+    box.classList.add('photos');
+
+    function addFiles(files) {
+      const room = max - list.length;
+      if (files.length > room) A.toast('Ek order mein ' + max + ' video tak. Pehli ' + room + ' le li.', 'err');
+      files.slice(0, Math.max(0, room)).forEach(function (f) {
+        if (!/^video\//.test(f.type || 'video/')) { A.toast('"' + f.name + '" video nahi hai.', 'err'); return; }
+        if (f.size > maxMb * 1048576) { A.toast('Video ' + maxMb + ' MB se chhoti honi chahiye (yeh ' + Math.round(f.size / 1048576) + ' MB hai).', 'err'); return; }
+        const item = { file: f, sec: 0, status: 'check', pct: 0, err: '', fileId: '' };
+        list.push(item);
+        videoSeconds(f).then(function (s) {
+          item.sec = s;
+          if (s > maxSec + 2) {
+            list.splice(list.indexOf(item), 1);
+            A.toast('Video ' + maxSec + ' second tak ki honi chahiye (yeh ' + Math.round(s) + ' second ki hai).', 'err');
+          } else item.status = 'wait';
+          draw(); next();
+        });
+      });
+      draw();
+    }
+
+    function next() {
+      if (running) return;
+      const item = list.filter(function (x) { return x.status === 'wait'; })[0];
+      if (!item) return;
+      running = true;
+      upload(item).then(function () { running = false; next(); });
+    }
+
+    function upload(item) {
+      item.status = 'up'; item.pct = 0; item.err = ''; draw();
+      const f = item.file;
+      return A.api('videoStart', { orderId: opts.orderId, name: f.name, mimeType: f.type || 'video/mp4', size: f.size, seconds: item.sec })
+        .then(function (r) {
+          item.uploadId = r.uploadId;
+          const size = r.chunkBytes;
+          function sendFrom(offset, tries) {
+            if (list.indexOf(item) < 0) return Promise.resolve();          // beech mein hata di
+            const end = Math.min(offset + size, f.size);
+            return readChunk(f, offset, end)
+              .then(function (b64) { return A.api('videoChunk', { uploadId: item.uploadId, offset: offset, data: b64 }); })
+              .then(function (res) {
+                if (res.done) { item.fileId = res.fileId; item.status = 'done'; item.pct = 100; draw(); return; }
+                item.pct = Math.min(99, Math.round((res.next / f.size) * 100)); draw();
+                return sendFrom(res.next, 0);
+              }, function (e) {
+                if (tries < 2) return new Promise(function (ok) { setTimeout(ok, 2000); }).then(function () { return sendFrom(offset, tries + 1); });
+                throw e;
+              });
+          }
+          return sendFrom(0, 0);
+        })
+        .then(function () {
+          if (list.indexOf(item) < 0 && item.fileId) A.api('videoDelete', { fileId: item.fileId }).catch(function () {});
+        })
+        .catch(function (e) { item.status = 'err'; item.err = e.message; draw(); });
+    }
+
+    function remove(i) {
+      const item = list[i];
+      list.splice(i, 1);
+      if (item.fileId) A.api('videoDelete', { fileId: item.fileId }).catch(function () {});
+      draw();
+    }
+
+    function draw() {
+      box.innerHTML = '';
+      list.forEach(function (it, i) {
+        const d = document.createElement('div');
+        d.className = 'photo-thumb';
+        const label = it.status === 'done' ? 'Ho gayi ✓'
+                    : it.status === 'err' ? 'Ruk gayi'
+                    : it.status === 'check' ? 'Check...'
+                    : it.status === 'wait' ? 'Line mein' : it.pct + '%';
+        const col = it.status === 'done' ? 'var(--green)' : (it.status === 'err' ? 'var(--red)' : 'var(--brand)');
+        d.innerHTML =
+          '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:' + col + ';font-size:12px;font-weight:600;background:var(--grey-bg)">' +
+            '<span style="width:22px;height:22px;display:block">' + VID_ICON + '</span>' +
+            '<span>Video ' + (i + 1) + (it.sec ? ' · ' + mmss(it.sec) : '') + '</span><span>' + label + '</span></div>' +
+          (it.status === 'up' ? '<div style="position:absolute;left:0;bottom:0;height:4px;background:var(--brand);width:' + it.pct + '%"></div>' : '') +
+          '<button type="button" class="x" aria-label="Hatao">×</button>';
+        A.$('.x', d).onclick = function (e) { e.stopPropagation(); remove(i); };
+        if (it.status === 'err') {
+          d.style.cursor = 'pointer';
+          d.onclick = function () {
+            A.sheet('<h3>Video ' + (i + 1) + ' upload nahi hui</h3><p class="muted">' + A.esc(it.err) + '</p>' +
+              '<div class="btn-row"><button class="btn btn-ghost" id="v-del">Hatao</button><button class="btn btn-main" id="v-re">Dobara try karo</button></div>',
+              function (el, close) {
+                A.$('#v-del', el).onclick = function () { close(); remove(i); };
+                A.$('#v-re', el).onclick = function () { close(); it.status = 'wait'; draw(); next(); };
+              });
+          };
+        }
+        box.appendChild(d);
+      });
+      if (list.length < max) {
+        const cam = document.createElement('button');
+        cam.type = 'button'; cam.className = 'photo-add';
+        cam.innerHTML = VID_ICON + '<span>Video banao</span>';
+        cam.onclick = function () { pickVideo(true, addFiles); };
+        box.appendChild(cam);
+        const gal = document.createElement('button');
+        gal.type = 'button'; gal.className = 'photo-add';
+        gal.innerHTML = VID_GAL_ICON + '<span>Gallery se video</span>';
+        gal.onclick = function () { pickVideo(false, addFiles); };
+        box.appendChild(gal);
+      }
+    }
+
+    function pickVideo(camera, onFiles) {
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = 'video/*';
+      if (camera) inp.setAttribute('capture', 'environment'); else inp.multiple = true;
+      inp.style.display = 'none';
+      inp.onchange = function () {
+        const files = Array.prototype.slice.call(inp.files || []);
+        if (inp.parentNode) inp.parentNode.removeChild(inp);
+        if (files.length) onFiles(files);
+      };
+      document.body.appendChild(inp);
+      inp.click();
+    }
+
+    draw();
+    return {
+      get: function () { return list.filter(function (x) { return x.status === 'done'; }).map(function (x) { return { fileId: x.fileId }; }); },
+      busy: function () { return list.some(function (x) { return x.status === 'up' || x.status === 'wait' || x.status === 'check'; }); },
+      failed: function () { return list.some(function (x) { return x.status === 'err'; }); },
+      count: function () { return list.length; }
+    };
+  };
+
+  /** Photo / video ke link: "Photo 1 · Video 1" */
+  A.mediaLinks = function (urls) {
+    let p = 0, v = 0;
+    return (urls || []).map(function (u) {
+      const isV = /#video$/.test(u);
+      const label = isV ? 'Video ' + (++v) : 'Photo ' + (++p);
+      return '<a href="' + A.esc(u) + '" target="_blank" rel="noopener">' + label + '</a>';
+    }).join(' · ');
+  };
+
+  /* ---------------- Neeche se sheet ---------------- */
+
+  A.sheet = function (html, onMount) {
+    const bg = document.createElement('div');
+    bg.className = 'sheet-bg';
+    bg.innerHTML = '<div class="sheet" role="dialog">' + html + '</div>';
+    bg.addEventListener('click', function (e) { if (e.target === bg) close(); });
+    document.body.appendChild(bg);
+    function close() { if (bg.parentNode) bg.parentNode.removeChild(bg); }
+    if (onMount) onMount(A.$('.sheet', bg), close);
+    return close;
+  };
+
+  /* ---------------- Screens + tabs ---------------- */
+
+  const ICONS = {
+    home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
+    lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+    work: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>',
+    add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>',
+    list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4h10l3 4v12H4V8z"/><path d="M8 12h8M8 16h5"/></svg>',
+    chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+    more: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>'
+  };
+
+  /** Neeche / left ke tabs */
+  A.tabsFor = function () {
+    if (!A.staff) return [];
+    const tabs = [
+      { key: 'home', label: 'Kaam', icon: 'home', match: ['home', 'myWork', 'step', 'newOrder'] },
+      { key: 'orders', label: 'Sab Orders', icon: 'list', match: ['orders', 'orderDetail'] }
+    ];
+    if (A.director) tabs.push({ key: 'dashboard', label: 'Dashboard', icon: 'chart', match: ['dashboard'] });
+    tabs.push({ key: 'more', label: 'Mera Account', icon: 'more', match: ['more', 'staff'] });
+    return tabs.filter(function (t) { return !!A.screens[t.key]; });
+  };
+
+  function drawTabs() {
+    const nav = A.$('#tabs');
+    if (!nav) return;
+    if (!A.config) { nav.innerHTML = ''; return; }
+    nav.innerHTML = A.tabsFor().map(function (t) {
+      const on = t.match.indexOf(A.current) >= 0;
+      return '<button type="button" class="tab' + (on ? ' active' : '') + '" data-tab="' + t.key + '">' +
+             ICONS[t.icon] + '<span>' + A.esc(t.label) + '</span>' +
+             (t.key === 'home' && A.redCount ? '<span class="badge">' + A.redCount + '</span>' : '') + '</button>';
+    }).join('');
+    A.$$('.tab', nav).forEach(function (b) { b.onclick = function () { A.go(b.getAttribute('data-tab')); }; });
+  }
+  A.drawTabs = drawTabs;
+
+  /** Screen badalna */
+  A.go = function (name, params) {
+    const view = A.$('#view');
+    const scr = A.screens[name];
+    A.current = name;
+    window.scrollTo(0, 0);
+    document.body.classList.remove('is-login');
+    drawWho();
+    drawTabs();
+    if (!scr) {
+      view.innerHTML = '<div class="empty"><b>Yeh screen jald aa rahi hai</b>Abhi ban rahi hai.</div>';
+      return;
+    }
+    try {
+      scr.render(view, params || {});
+    } catch (e) {
+      view.innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>';
+    }
+  };
+
+  /** Upar staff ka naam + role (gol nishaan mein naam ke pehle akshar) */
+  function drawWho() {
+    const who = A.$('#who');
+    if (!who) return;
+    if (!A.staff) { who.innerHTML = ''; return; }
+    const d = A.staff;
+    const ini = d.name.replace(/^(mr|mrs|ms)\.?\s+/i, '').split(/\s+/).map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
+    who.innerHTML = '<span class="av">' + A.esc(ini) + '</span><span class="tx"><span class="nm">' + A.esc(d.name) +
+                    '</span><br><span class="rl">' + A.esc(d.role) + '</span></span>';
+  }
+
+  /** Page ka heading (har screen isi se) */
+  A.pageHead = function (title, sub, rightHtml) {
+    return '<div class="page-head"><div><h1 class="screen-title">' + A.esc(title) + '</h1>' +
+           (sub ? '<p class="screen-sub">' + A.esc(sub) + '</p>' : '') + '</div>' + (rightHtml || '') + '</div>';
+  };
+
+  /** Pehli screen (role ke hisaab se) */
+  A.home = function () { A.go('home'); };
+
+  /* ---------------- Shuruaat: pehle login window (PMS jaisa) ---------------- */
+
+  function applyBoot(d) {
+    A.config = d.config;
+    A.staff = d.me;
+    A.director = d.me.isAdmin ? d.me : null;
+  }
+
+  A.start = function (thenGo) {
+    if (!A.token()) { A.showLogin(); return; }
+
+    // Pichli baar ki settings phone mein hain → app turant khulo, taaza peeche se
+    let cached = null;
+    try { cached = JSON.parse(store.get(BOOT_KEY) || 'null'); } catch (e) { cached = null; }
+    if (cached && cached.me && cached.config) { applyBoot(cached); A.go(thenGo || 'home'); }
+    else A.loading(true, 'Khul raha hai...');
+
+    A.api('boot', {})
+      .then(function (d) {
+        A.loading(false);
+        const first = !cached || !cached.me;
+        const changed = !first && (cached.me.name !== d.me.name || cached.me.isAdmin !== d.me.isAdmin ||
+          JSON.stringify(cached.me.steps) !== JSON.stringify(d.me.steps));
+        applyBoot(d);
+        store.set(BOOT_KEY, JSON.stringify(d));
+        if (first || changed) A.go(thenGo || 'home');
+        else A.drawTabs();
+      })
+      .catch(function (e) {
+        A.loading(false);
+        if (A.current === 'login') return;     // login khatam → login window khul chuki
+        if (cached && cached.me) { A.toast(e.message, 'err'); return; }
+        A.$('#view').innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>' +
+          '<button class="btn btn-main btn-block" onclick="O2D.start()">Dobara try karo</button>';
+      });
+  };
+
+  /* ---------------- "Mera Account" screen ---------------- */
+
+  A.screens.more = {
+    render: function (view) {
+      if (!A.staff) { A.showLogin(); return; }
+      const s = A.staff;
+      const steps = s.isAdmin ? 'Sab kaam + Dashboard' : ((s.stepLabels || []).join(', ') || '-');
+      view.innerHTML =
+        A.pageHead('Mera Account', '') +
+        '<div class="panel">' +
+          '<ul class="list-plain">' +
+            '<li class="row between"><span class="muted">Naam</span><b>' + A.esc(s.name || '') + '</b></li>' +
+            '<li class="row between"><span class="muted">Role</span><b>' + A.esc(s.role || '') + '</b></li>' +
+            '<li class="row between" style="align-items:flex-start"><span class="muted">Kaam</span><b style="text-align:right">' + A.esc(steps || '-') + '</b></li>' +
+          '</ul>' +
+        '</div>' +
+        '<div class="panel">' +
+          (A.screens.staff && s.isDirector ? '<button class="btn btn-ghost btn-block" id="m-staff">Staff sambhalo</button><div style="height:10px"></div>' : '') +
+          '<button class="btn btn-ghost btn-block" id="m-pin">Apna PIN badlo</button>' +
+          '<div style="height:10px"></div>' +
+          '<button class="btn btn-danger btn-block" id="m-out">Logout</button>' +
+        '</div>';
+      const st = A.$('#m-staff');
+      if (st) st.onclick = function () { A.go('staff'); };
+      A.$('#m-pin').onclick = openPinChange;
+      A.$('#m-out').onclick = function () { A.showLogin('Logout ho gaye.'); };
+    }
+  };
+
+  function openPinChange() {
+    A.sheet(
+      '<h3>Apna PIN badlo</h3>' +
+      '<div class="field"><label>Purana PIN</label><input class="input" id="p-old" inputmode="numeric" maxlength="4" type="password"></div>' +
+      '<div class="field"><label>Naya PIN (4 ank)</label><input class="input" id="p-new" inputmode="numeric" maxlength="4" type="password">' +
+      '<div class="hint">0000 ya 1234 jaisa aasaan PIN nahi chalega.</div></div>' +
+      '<button class="btn btn-main btn-block" id="p-save">PIN badlo</button>',
+      function (el, close) {
+        A.$('#p-save', el).onclick = function () {
+          A.call('changePin', { oldPin: A.$('#p-old', el).value, newPin: A.$('#p-new', el).value }, 'PIN badal raha hai...')
+            .then(function () { close(); A.toast('PIN badal gaya.', 'ok'); })
+            .catch(function () {});
+        };
+      });
+  }
+
+})(window.O2D);
+</script>
+
+
+  <!--
+  ============================================================
+   Screen_Login.html  —  Login window (PMS jaisa simple)
+  ============================================================
+   Link kholte hi sabse pehle yahi:
+   - Staff ka APNA link (?u=...) → naam pehle se likha, sirf PIN
+   - Common link → neeche wale 3 kadam
+   1. "Apna naam chuno" — dropdown (Staff tab ke Active log)
+   2. PIN — 4 ank (Staff tab ke PIN column wala)
+   3. "Andar jao" — 4 ank poore hote hi apne aap bhi khul jaata hai
+   Phone pichla naam yaad rakhta hai, aur login 30 din tak.
+   Staff ko sirf apne kaam dikhte hain, Director / PC ko sab.
+  ============================================================
+-->
+<script>
+(function (A) {
+  'use strict';
+
+  const LAST_KEY = 'o2d_login_name';
+
+  function lastName() { try { return localStorage.getItem(LAST_KEY) || ''; } catch (e) { return ''; } }
+  function saveName(n) { try { localStorage.setItem(LAST_KEY, n); } catch (e) {} }
+
+  A.screens.login = {
+    render: function (view, params) {
+      document.body.classList.add('is-login');
+      const nav = A.$('#tabs');
+      if (nav) nav.innerHTML = '';
+
+      const names = window.O2D_NAMES || [];
+      const last = lastName();
+      const link = window.O2D_LINK && names.length === 1 ? String(window.O2D_LINK) : '';
+      const firstMsg = params.msg || window.O2D_LINK_ERR || '';
+
+      const nameHtml = link
+        ? '<div class="field" style="margin-top:16px"><label>Aapka naam</label>' +
+            '<div class="input" style="display:flex;align-items:center;font-weight:600;background:var(--bg)">' + A.esc(names[0]) + '</div>' +
+            '<input type="hidden" id="lg-name" value="' + A.esc(names[0]) + '"></div>'
+        : '<div class="field" style="margin-top:16px"><label for="lg-name">Apna naam</label>' +
+            '<select class="select" id="lg-name"><option value="">— Naam chuno —</option>' +
+              names.map(function (n) { return '<option value="' + A.esc(n) + '"' + (n === last ? ' selected' : '') + '>' + A.esc(n) + '</option>'; }).join('') +
+            '</select>' +
+            (names.length ? '' : '<div class="hint" style="color:var(--red)">Staff list khaali hai — Staff tab mein naam aur Active tick check karo.</div>') +
+          '</div>';
+
+      view.innerHTML =
+        '<div class="login-page"><div class="login-card">' +
+          '<div class="login-top"><div class="logo">RKG</div><b>RK Garg Jeans</b><small>Order To Dispatch</small></div>' +
+          '<div class="login-body" style="text-align:left">' +
+            '<h2>' + (link ? 'Namaste ' + A.esc(names[0]) : 'Login karo') + '</h2>' +
+            '<p>' + (link ? 'Apna 4 ank ka PIN daalo' : 'Apna naam chuno aur PIN daalo') + '</p>' +
+            nameHtml +
+            '<div class="field" style="margin-bottom:0"><label for="lg-pin">PIN</label>' +
+              '<input class="input pin-input" id="lg-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="current-password" placeholder="••••">' +
+            '</div>' +
+            '<div class="pin-msg" id="lg-msg">' + A.esc(firstMsg) + '</div>' +
+            '<button type="button" class="btn btn-main btn-block" id="lg-go">Andar jao</button>' +
+          '</div>' +
+          '<div class="login-foot">PIN bhool gaye? Director se poochho.</div>' +
+        '</div></div>';
+
+      const sel = A.$('#lg-name', view);
+      const pin = A.$('#lg-pin', view);
+      const msg = A.$('#lg-msg', view);
+      const btn = A.$('#lg-go', view);
+      let busy = false;
+
+      function shake() { pin.classList.remove('shake'); void pin.offsetWidth; pin.classList.add('shake'); }
+
+      function submit() {
+        if (busy) return;
+        const name = sel.value;
+        const p = pin.value.replace(/\D/g, '');
+        if (!name) { msg.textContent = 'Pehle apna naam chuno.'; sel.focus(); return; }
+        if (p.length !== 4) { msg.textContent = 'PIN 4 ank ka hai.'; pin.focus(); return; }
+        busy = true; btn.disabled = true; msg.textContent = '';
+        A.loading(true, 'Check ho raha hai...');
+        (link ? A.api('loginLink', { code: link, pin: p }) : A.api('login', { name: name, pin: p }))
+          .then(function (d) {
+            A.loading(false);
+            saveName(name);
+            A.setLogin(d.token);
+            document.body.classList.remove('is-login');
+            A.start('home');
+          })
+          .catch(function (e) {
+            A.loading(false);
+            busy = false; btn.disabled = false;
+            pin.value = '';
+            msg.textContent = e.message;
+            shake();
+            pin.focus();
+          });
+      }
+
+      if (!link) sel.onchange = function () { msg.textContent = ''; if (sel.value) pin.focus(); };
+      pin.addEventListener('input', function () {
+        pin.value = pin.value.replace(/\D/g, '').slice(0, 4);
+        msg.textContent = '';
+        if (pin.value.length === 4 && sel.value) submit();
+      });
+      pin.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+      btn.onclick = submit;
+      setTimeout(function () { (sel.value || link ? pin : sel).focus(); }, 150);
+    }
+  };
+
+})(window.O2D);
+</script>
+
+  <!--
+  ============================================================
+   Screen_Home.html  —  Home (PMS jaisa, bina login)
+  ============================================================
+   Login ke baad yahi screen (sirf apne kaam ke dabbe):
+   - "Naya Order" ka bada dabba
+   - Har kaam ka dabba: Stock Hai?, Maal Ready, Bill Banao,
+     Bill Check, Packing, Bilty — har ek pe:
+       kitne pending, kitne late (laal), kiske paas
+   - Dabbe pe tap → us kaam ke orders ki list
+   - Har 60 second mein apne aap taaza
+  ============================================================
+-->
+<script>
+(function (A) {
+  'use strict';
+
+  let timer = null;
+
+  A.screens.home = {
+    render: function (view) {
+      clearInterval(timer);
+      view.innerHTML =
+        A.pageHead('Kaam', 'Load ho raha hai...', '<button class="btn btn-ghost btn-sm" id="h-ref">Taaza karo</button>') +
+        '<div id="h-body"></div>';
+      A.$('#h-ref', view).onclick = function () { load(true); };
+
+      function tile(opts) {
+        const bad = opts.red ? '<span class="pill red">' + opts.red + ' late</span>'
+                  : (opts.yellow ? '<span class="pill yellow">' + opts.yellow + ' jaldi</span>' : '');
+        return '<button type="button" class="kpi" data-go="' + A.esc(opts.go) + '" data-step="' + A.esc(opts.step || '') + '" ' +
+          'style="text-align:left;cursor:pointer;border-left:4px solid ' + opts.edge + ';width:100%;font:inherit;color:inherit">' +
+          '<div class="row between" style="align-items:flex-start"><div class="k-label" style="font-size:14px;font-weight:600;color:var(--text)">' + A.esc(opts.title) + '</div>' + bad + '</div>' +
+          '<div class="k-val" style="margin-top:6px">' + A.esc(opts.val) + '</div>' +
+          '<div class="muted small">' + A.esc(opts.sub || '') + '</div>' +
+          '</button>';
+      }
+
+      function draw(d) {
+        if (A.current !== 'home') return;
+        A.redCount = d.red;
+        A.drawTabs();
+        A.$('.screen-sub', view).textContent = d.total
+          ? A.staff.name + ' · ' + d.total + ' order pending' + (d.red ? ' — ' + d.red + ' late' : '') + ' · ' + d.at
+          : A.staff.name + ' · abhi koi kaam pending nahi · ' + d.at;
+
+        let h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">';
+        if (A.screens.newOrder && d.canNewOrder) {
+          h += '<button type="button" class="kpi" data-go="newOrder" style="text-align:left;cursor:pointer;width:100%;font:inherit;' +
+               'background:var(--brand);color:#fff;border-color:var(--brand)">' +
+               '<div style="font-size:14px;font-weight:600;opacity:.9">Naya Order</div>' +
+               '<div style="font-size:26px;font-weight:700;margin-top:6px">+ Order bharo</div>' +
+               '<div class="small" style="opacity:.8">Customer ka naya order</div></button>';
+        }
+        d.steps.forEach(function (s) {
+          h += tile({
+            go: 'myWork', step: s.step, title: s.label,
+            val: s.count ? s.count + ' pending' : 'Sab ho gaya',
+            sub: (d.who[s.step] || 'Director') + (s.wait ? ' · ' + s.wait + ' maal ka intezaar' : ''),
+            red: s.red, yellow: s.yellow,
+            edge: s.red ? 'var(--red)' : (s.yellow ? 'var(--amber)' : (s.count ? 'var(--green)' : 'var(--border)'))
+          });
+        });
+        h += '</div>';
+        A.$('#h-body', view).innerHTML = h;
+        A.$$('[data-go]', view).forEach(function (b) {
+          b.onclick = function () { A.go(b.getAttribute('data-go'), { step: b.getAttribute('data-step') }); };
+        });
+      }
+
+      function load(showLoader) {
+        if (A.current !== 'home') { clearInterval(timer); return; }
+        A.fast('home', {}, draw, 'Kaam la rahe hain...', showLoader)
+          .catch(function (e) { if (showLoader && A.current === 'home') A.$('#h-body', view).innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>'; });
+      }
+
+      load(true);
+      timer = setInterval(function () { load(false); }, 60000);
+    }
+  };
+
+})(window.O2D);
+</script>
+
+  <!--
+  ============================================================
+   Screen_MyWork.html  —  Ek kaam ke pending orders
+  ============================================================
+   Home pe kisi kaam ke dabbe pe tap → yeh list.
+   - Har order ek card: rangeen patti + goli
+       laal = late, peela = 80% time gaya, hara = time hai, neela = maal ka intezaar
+   - Laal sabse upar
+   - Card pe tap → us order ka step bharne ki screen
+   - Har 60 second mein apne aap taaza
+  ============================================================
+-->
+<script>
+(function (A) {
+  'use strict';
+
+  /** Order card (baaki screens bhi yahi use karti hain) */
+  A.slipHtml = function (c, extra) {
+    const meta = [c.city, c.item].filter(Boolean).join(' · ');
+    const right = c.signal ? '<span class="pill ' + A.esc(c.color) + '">' + A.esc(c.signal) + '</span>' : '';
+    return '<button type="button" class="slip ' + A.esc(c.color || '') + '" data-oid="' + A.esc(c.orderId) + '" data-step="' + A.esc(c.step || '') + '">' +
+      '<div class="slip-top"><span class="oid">' + A.esc(c.orderId) + '</span>' + right + '</div>' +
+      '<div class="slip-cust">' + A.esc(c.customer) + '</div>' +
+      (meta ? '<div class="slip-meta">' + A.esc(meta) + '</div>' : '') +
+      (extra ? '<div class="slip-foot">' + extra + '</div>' : '') +
+      '</button>';
+  };
+
+  let timer = null;
+
+  A.screens.myWork = {
+    render: function (view, params) {
+      clearInterval(timer);
+      const step = params.step || A.lastStep;
+      if (!step) { A.go('home'); return; }
+      A.lastStep = step;
+      const cfg = (A.config.steps || []).filter(function (s) { return s.key === step; })[0] || { label: step };
+
+      view.innerHTML = A.pageHead(cfg.label, 'Load ho raha hai...',
+        '<div class="row" style="gap:8px"><button class="btn btn-ghost btn-sm" id="mw-back">Wapas</button>' +
+        '<button class="btn btn-ghost btn-sm" id="mw-refresh">Taaza karo</button></div>') +
+        '<div id="mw-body"></div>';
+      A.$('#mw-back', view).onclick = function () { A.go('home'); };
+      A.$('#mw-refresh', view).onclick = function () { load(true); };
+
+      function load(showLoader) {
+        if (A.current !== 'myWork') { clearInterval(timer); return; }
+        A.fast('stepList', { step: step }, draw, 'Orders la rahe hain...', showLoader)
+          .catch(function (e) {
+            if (showLoader) A.$('#mw-body', view).innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>';
+          });
+      }
+
+      function draw(d) {
+        if (A.current !== 'myWork') return;
+        const g = (d.groups || [])[0] || { items: [] };
+        A.$('.screen-sub', view).textContent = g.items.length
+          ? g.items.length + ' order pending' + (d.red ? ' — ' + d.red + ' late' : '') + ' · ' + d.at
+          : 'Koi order pending nahi · ' + d.at;
+
+        const body = A.$('#mw-body', view);
+        if (!g.items.length) {
+          body.innerHTML = '<div class="panel empty"><b>Sab ho gaya</b>Naya order aate hi yahan dikhega.</div>';
+          return;
+        }
+        body.innerHTML = g.items.map(function (c) {
+          const bits = [];
+          if (c.deadline) bits.push('Deadline: ' + c.deadline);
+          if (c.billNo) bits.push('Bill ' + c.billNo);
+          if (c.courierType) bits.push(c.courierType);
+          return A.slipHtml(c, '<span>' + A.esc(bits.join(' · ')) + '</span><span>' + A.esc(c.payment || '') + '</span>');
+        }).join('');
+
+        A.$$('.slip', body).forEach(function (b) {
+          b.onclick = function () { A.go('step', { orderId: b.getAttribute('data-oid'), stepKey: step }); };
+        });
+      }
+
+      load(true);
+      timer = setInterval(function () { load(false); }, 60000);
+    }
+  };
+
+})(window.O2D);
+</script>
+
+  <!--
+  ============================================================
+   Screen_StepForm.html  —  Step bharne ki screen
+  ============================================================
+   Order card pe tap karte hi yeh khulti hai:
+   1. Upar order ki details (customer, item, payment, parchi photo,
+      pichle steps ki jaankari — bill no., courier type...)
+   2. Deadline ka rang (laal / peela / hara / neela)
+   3. Abhi wale step ka form:
+        Stock Hai?      → Haan / Nahi (Nahi pe "Maal kab tak aayega")
+        Maal Ready      → ek button
+        Bill Banao      → Bill Number + bill photo
+        Bill Se Check   → "Sab Sahi Hai" / "Galti Mili"
+        Packing         → By Courier / By Hand + packing photos / video
+                          (video 3 tak, 1 minute tak — chunte hi upload)
+                          "Is baar photo / video skip karo" tick → zaroori nahi
+        Transport/Bilty → Transporter + Bilty No. + bilty photo
+                          (By Hand ho toh bilty zaroori nahi)
+   4. Staff ka naam login se apne aap jaata hai. Director / PC ke liye
+      "Kaam kisne kiya" + "Kaam kab hua"
+   5. Late ho toh "Late kyun hua?" poochta hai, phir save
+  ============================================================
+-->
+<script>
+(function (A) {
+  'use strict';
+
+  function stepCfg(key) {
+    return (A.config.steps || []).filter(function (s) { return s.key === key; })[0] || { fields: [], staffNames: [] };
+  }
+  function goBack() {
+    if (A.lastStep) A.go('myWork', { step: A.lastStep });
+    else A.go('home');
+  }
+  function row(label, value) {
+    if (!value) return '';
+    return '<li class="row between" style="align-items:flex-start"><span class="muted">' + A.esc(label) + '</span>' +
+           '<span style="text-align:right;font-weight:500">' + value + '</span></li>';
+  }
+  function photoLinks(urls) { return A.mediaLinks(urls); }
+
+  A.screens.step = {
+    render: function (view, params) {
+      view.innerHTML = A.pageHead('Order', 'Load ho raha hai...') + '<div id="sf-body"></div>';
+      A.call('orderDetail', { orderId: params.orderId }, 'Order khul raha hai...')
+        .then(function (d) { draw(view, d); })
+        .catch(function (e) { A.$('#sf-body', view).innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>'; });
+    }
+  };
+
+  function draw(view, d) {
+    const stepKey = d.currentStep;
+    const cfg = stepCfg(stepKey);
+    const prev = {};
+    (d.steps || []).forEach(function (s) { prev[s.key] = s; });
+    const byHand = prev.PACKAGING && String(prev.PACKAGING.fields.COURIER_TYPE || '').toLowerCase() === 'by hand';
+
+    // ---------- Upar: order ki jaankari ----------
+    let html = A.pageHead(d.complete ? 'Order complete' : d.currentLabel,
+      d.orderId + ' · ' + d.customer,
+      '<button class="btn btn-ghost btn-sm" id="sf-back">Wapas</button>');
+
+    if (d.cancelled) html += '<div class="note err">Yeh order cancel ho chuka hai: ' + A.esc(d.cancelReason) + '</div>';
+    else if (d.signal && d.signal.text && !d.complete) {
+      const cls = d.signal.color === 'red' ? 'err' : (d.signal.color === 'yellow' ? 'warn' : '');
+      html += '<div class="note ' + cls + '">' + A.esc(d.signal.text) + '</div>';
+    }
+
+    const extra = [];
+    if (prev.STOCK_CHECK && prev.STOCK_CHECK.done) {
+      extra.push(row('Stock', A.esc(prev.STOCK_CHECK.status) + (prev.STOCK_CHECK.fields.MAAL_KAB_AAYEGA ? ' — maal ' + A.esc(prev.STOCK_CHECK.fields.MAAL_KAB_AAYEGA) : '')));
+    }
+    if (prev.INVOICE && prev.INVOICE.done) extra.push(row('Bill', A.esc(prev.INVOICE.fields.BILL_NUMBER) + (prev.INVOICE.photos.length ? ' — ' + photoLinks(prev.INVOICE.photos) : '')));
+    if (prev.PACKAGING && prev.PACKAGING.done) extra.push(row('Packing', A.esc(prev.PACKAGING.fields.COURIER_TYPE) + (prev.PACKAGING.photos.length ? ' — ' + photoLinks(prev.PACKAGING.photos) : '')));
+
+    html += '<div class="panel"><ul class="list-plain">' +
+      row('Customer', A.esc(d.customer)) +
+      row('Shahar', A.esc(d.city)) +
+      row('Phone', d.phone ? '<a href="tel:' + A.esc(d.phone) + '">' + A.esc(d.phone) + '</a>' : '') +
+      row('Item', A.esc(d.item)) +
+      row('Order Type', A.esc(d.orderType)) +
+      row('Payment', A.esc(d.payment)) +
+      row('Salesperson', A.esc(d.salesperson)) +
+      row('Order kab aaya', A.esc(d.orderTime)) +
+      row('Parchi', photoLinks(d.orderPhotos)) +
+      extra.join('') +
+      '</ul></div>';
+
+    // ---------- Form ----------
+    if (d.cancelled || d.complete) {
+      html += '';
+    } else if (!d.canAct) {
+      html += '<div class="note">Yeh step ("' + A.esc(d.currentLabel) + '") aapke paas nahi hai.</div>';
+    } else {
+      html += '<div class="panel"><div class="panel-head"><h3>' + A.esc(d.currentLabel) + '</h3></div><div id="sf-form"></div></div>';
+    }
+    A.$('#sf-body', view).innerHTML = '';
+    view.innerHTML = html;
+    A.$('#sf-back', view).onclick = goBack;
+    if (!A.$('#sf-form', view)) return;
+
+    buildForm(A.$('#sf-form', view), d, stepKey, cfg, byHand);
+  }
+
+  /* ---------------- Har step ka form ---------------- */
+
+  function buildForm(box, d, stepKey, cfg, byHand) {
+    const state = { decision: '', choices: {}, pickers: {} };
+    let h = '';
+
+    // Sabse upar: "Aapka naam" (Director login ho toh "Kaam kisne kiya")
+    h += A.nameSelectHtml(stepKey, 'in-doneBy');
+
+    if (stepKey === 'STOCK_CHECK') {
+      h += '<div class="field"><label>Godown mein maal hai?</label>' +
+           '<div class="yesno"><button type="button" class="choice yes" data-dec="Yes">Haan, hai</button>' +
+           '<button type="button" class="choice no" data-dec="No">Nahi hai</button></div></div>' +
+           '<div class="field hide" id="f-date"><label>Maal kab tak aayega? <span class="req">*</span></label>' +
+           '<input class="input" type="date" id="in-MAAL_KAB_AAYEGA" min="' + A.esc(A.config.today) + '">' +
+           '<div class="hint">Us din shaam tak maal ready karna hoga. Chhutti ka din nahi chalega.</div></div>';
+    } else if (stepKey === 'BILL_CHECK') {
+      h += '<p class="muted" style="margin-top:0">Maal ko bill se milao — pcs, size, item.</p>';
+    } else if (stepKey === 'MAAL_READY') {
+      h += '<p class="muted" style="margin-top:0">Maal nikaal ke alag rakh diya? Toh neeche button dabao.</p>';
+    }
+
+    if (stepKey === 'DISPATCH' && byHand) {
+      h += '<div class="note">Is order ki packing <b>By Hand</b> thi — customer khud le gaya. Bilty zaroori nahi.</div>';
+    }
+
+    // Baaki fields settings se
+    (cfg.fields || []).forEach(function (f) {
+      if (stepKey === 'STOCK_CHECK') return;
+      const req = f.required && !(stepKey === 'DISPATCH' && byHand);
+      const star = req ? ' <span class="req">*</span>' : '';
+      if (f.type === 'select') {
+        h += '<div class="field"><label>' + A.esc(f.header) + star + '</label><div class="choices" data-sel="' + f.key + '">' +
+             f.options.map(function (o) { return '<button type="button" class="choice" data-v="' + A.esc(o) + '">' + A.esc(o) + '</button>'; }).join('') +
+             '</div></div>';
+      } else if (f.type === 'photos') {
+        h += '<div class="field"><label>' + A.esc(f.header) + star + '</label><div id="pk-' + f.key + '"></div>' +
+             (f.key === 'PACKING_PHOTOS' ? '<div class="hint">Alag-alag angle se photo lo, taaki pcs aur packing saaf dikhe.</div>' : '') + '</div>';
+        if (f.key === 'PACKING_PHOTOS') {
+          h += '<div class="field"><label>Packing Video</label><div id="vk-PACKING"></div>' +
+               '<div class="hint">3 video tak, har video 1 minute tak. Chunte hi upload shuru — screen band mat karna.</div></div>' +
+               '<div class="field"><label class="row" style="gap:10px;cursor:pointer;font-weight:500">' +
+               '<input type="checkbox" id="in-skipMedia" style="width:20px;height:20px;flex:none"> Is baar photo / video skip karo</label>' +
+               '<div class="hint">Tick nahi = kam se kam 1 photo ya 1 video zaroori. Skip Activity Log mein likha jaayega.</div></div>';
+        }
+      } else {
+        const ph = f.key === 'TRANSPORTER' ? 'Jaise: Umesh Sah Transport' : (f.key === 'BILL_NUMBER' ? 'Jaise: L/543' : '');
+        h += '<div class="field"><label>' + A.esc(f.header) + star + '</label>' +
+             '<input class="input" id="in-' + f.key + '" placeholder="' + A.esc(ph) + '" autocomplete="off">' + '</div>';
+      }
+    });
+
+    // Sirf Director: kaam pehle hua tha toh time badal sakte hain
+    if (A.director) {
+      h += '<div class="field"><label>Kaam kab hua (sirf Director)</label><input class="input" type="datetime-local" id="in-doneAt">' +
+           '<div class="hint">Khaali chhodo = abhi ka time</div></div>';
+    }
+
+    // Buttons
+    if (stepKey === 'BILL_CHECK') {
+      h += '<div class="btn-row"><button type="button" class="btn btn-warn" id="sf-issue">Galti mili</button>' +
+           '<button type="button" class="btn btn-go" id="sf-save">Sab sahi hai</button></div>';
+    } else {
+      const label = { STOCK_CHECK: 'Save karo', MAAL_READY: 'Maal ready — Done', INVOICE: 'Bill save karo',
+                      PACKAGING: 'Packing done', DISPATCH: 'Dispatch done' }[stepKey] || 'Done';
+      h += '<button type="button" class="btn btn-go btn-block" id="sf-save">' + label + '</button>';
+    }
+    box.innerHTML = h;
+
+    // ---- chalana ----
+    A.$$('[data-dec]', box).forEach(function (b) {
+      b.onclick = function () {
+        state.decision = b.getAttribute('data-dec');
+        A.$$('[data-dec]', box).forEach(function (x) { x.classList.toggle('on', x === b); });
+        A.$('#f-date', box).classList.toggle('hide', state.decision !== 'No');
+      };
+    });
+    A.$$('[data-sel]', box).forEach(function (wrap) {
+      const key = wrap.getAttribute('data-sel');
+      A.$$('.choice', wrap).forEach(function (b) {
+        b.onclick = function () {
+          state.choices[key] = b.getAttribute('data-v');
+          A.$$('.choice', wrap).forEach(function (x) { x.classList.toggle('on', x === b); });
+        };
+      });
+    });
+    (cfg.fields || []).forEach(function (f) {
+      if (f.type === 'photos' && A.$('#pk-' + f.key, box)) {
+        state.pickers[f.key] = A.photoPicker(A.$('#pk-' + f.key, box), {
+          label: f.key === 'BILL_PHOTO' ? 'Bill ki photo' : (f.key === 'BILTY_PHOTO' ? 'Bilty ki photo' : 'Photo lo'),
+          max: f.key === 'PACKING_PHOTOS' ? A.config.photo.maxPerField : 3
+        });
+      }
+    });
+    if (A.$('#vk-PACKING', box)) {
+      state.videos = A.videoPicker(A.$('#vk-PACKING', box), { orderId: d.orderId, max: 3, maxSeconds: 60, maxMb: 200 });
+    }
+    const doneAt = A.$('#in-doneAt', box);
+    if (doneAt) doneAt.max = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+    const token = A.uid();
+
+    function whoValue() {
+      // Staff: naam login se apne aap. Director: dropdown (khaali = khud)
+      const sel = A.$('#in-doneBy', box);
+      return sel ? sel.value : '';
+    }
+
+    function collect() {
+      const input = { fields: {}, photos: {}, clientToken: token };
+      input.doneBy = whoValue();
+      if (stepKey === 'STOCK_CHECK') {
+        if (!state.decision) throw new Error('Haan ya Nahi chuno.');
+        input.decision = state.decision;
+        if (state.decision === 'No') input.fields.MAAL_KAB_AAYEGA = A.$('#in-MAAL_KAB_AAYEGA', box).value;
+      }
+      (cfg.fields || []).forEach(function (f) {
+        if (stepKey === 'STOCK_CHECK') return;
+        if (f.type === 'select') input.fields[f.key] = state.choices[f.key] || '';
+        else if (f.type === 'photos') input.photos[f.key] = state.pickers[f.key] ? state.pickers[f.key].get() : [];
+        else { const el = A.$('#in-' + f.key, box); if (el) input.fields[f.key] = el.value; }
+      });
+      if (state.videos) {
+        if (state.videos.busy()) throw new Error('Video abhi upload ho rahi hai — thoda ruko, phir Save dabao.');
+        if (state.videos.failed()) throw new Error('Ek video upload nahi hui — us pe tap karke "Dobara try karo" ya hatao.');
+        input.videos = state.videos.get();
+        const skipBox = A.$('#in-skipMedia', box);
+        input.skipMedia = !!(skipBox && skipBox.checked);
+        const nPhotos = (input.photos.PACKING_PHOTOS || []).length;
+        if (!input.skipMedia && !nPhotos && !input.videos.length) {
+          throw new Error('Packing ki kam se kam 1 photo ya 1 video daalo — ya "skip" pe tick karo.');
+        }
+      }
+      if (doneAt && doneAt.value) input.doneAt = doneAt.value;
+      return input;
+    }
+
+    function send(input) {
+      A.call('submitStep', { stepKey: stepKey, orderId: d.orderId, input: input }, 'Save ho raha hai...')
+        .then(function (r) {
+          if (r.needLateReason) return askLate(r, input, send);
+          A.toast(r.complete ? 'Order complete ho gaya.' : 'Ho gaya. Ab: ' + r.nextLabel, 'ok');
+          goBack();
+        })
+        .catch(function () {});
+    }
+
+    A.$('#sf-save', box).onclick = function () {
+      try { send(collect()); } catch (e) { A.toast(e.message, 'err'); }
+    };
+
+    const issue = A.$('#sf-issue', box);
+    if (issue) issue.onclick = function () {
+      let who;
+      try { who = whoValue(); } catch (e) { return A.toast(e.message, 'err'); }
+      A.sheet('<h3>Kya galti mili?</h3>' +
+        '<div class="field"><textarea class="textarea" id="g-note" placeholder="Jaise: 2 pcs kam hain, size 32 ki jagah 34"></textarea></div>' +
+        '<div class="note warn">Order yahin ruka rahega. Galti theek hone ke baad "Sab sahi hai" dabana.</div>' +
+        '<button class="btn btn-main btn-block" id="g-save">Galti record karo</button>',
+        function (el, close) {
+          A.$('#g-save', el).onclick = function () {
+            A.call('billIssue', { orderId: d.orderId, note: A.$('#g-note', el).value, doneBy: who }, 'Record ho raha hai...')
+              .then(function (r) { close(); A.toast(r.message, 'ok'); })
+              .catch(function () {});
+          };
+        });
+    };
+  }
+
+  /* ---------------- Late kyun hua ---------------- */
+
+  /** Late reason poochna — phir wahi data reason ke saath dobara save */
+  function askLate(r, input, send) {
+    const reasons = r.reasons || A.config.lateReasons || [];
+    const other = reasons[reasons.length - 1];
+    let picked = '';
+    A.sheet('<h3>Late kyun hua?</h3>' +
+      '<p class="muted" style="margin-top:0">' + A.esc(r.message) + '</p>' +
+      '<div class="choices" id="lr">' + reasons.map(function (x) { return '<button type="button" class="choice" data-v="' + A.esc(x) + '">' + A.esc(x) + '</button>'; }).join('') + '</div>' +
+      '<div class="field mt hide" id="lr-note-f"><label>Kya wajah thi? <span class="req">*</span></label><input class="input" id="lr-note"></div>' +
+      '<button class="btn btn-go btn-block mt" id="lr-save">Save karo</button>',
+      function (el, close) {
+        A.$$('#lr .choice', el).forEach(function (b) {
+          b.onclick = function () {
+            picked = b.getAttribute('data-v');
+            A.$$('#lr .choice', el).forEach(function (x) { x.classList.toggle('on', x === b); });
+            A.$('#lr-note-f', el).classList.toggle('hide', picked !== other);
+          };
+        });
+        A.$('#lr-save', el).onclick = function () {
+          const note = A.$('#lr-note', el).value.trim();
+          if (!picked) return A.toast('Ek wajah chuno.', 'err');
+          if (picked === other && !note) return A.toast('Wajah likho.', 'err');
+          input.lateReason = picked;
+          input.lateNote = note;
+          close();
+          send(input);
+        };
+      });
+  }
+
+})(window.O2D);
+</script>
+
+  <!--
+  ============================================================
+   Screen_NewOrder.html  —  "Naya Order" (Salesperson)
+  ============================================================
+   Purane Google Form ki jagah:
+   - Customer ka naam, phone, shahar
+   - Item (ek se zyada chun sakte hain)
+   - Customer Type, Order Type, Payment — bade button, dropdown nahi
+   - Order parchi ki photo (zaroori)
+   - Salesperson ka naam login se apne aap; Director kisi ki taraf se bhi bhar sakta hai
+   Save hote hi Order ID (OD-211026-01) bada dikhta hai.
+   Double tap se do order nahi bante.
+  ============================================================
+-->
+<script>
+(function (A) {
+  'use strict';
+
+  function cfg() {
+    return (A.config.steps || []).filter(function (s) { return s.key === 'ORDER_ENTRY'; })[0] || { fields: [], staffNames: [] };
+  }
+
+  A.screens.newOrder = {
+    render: function (view) {
+      const c = cfg();
+      const F = {};
+      c.fields.forEach(function (f) { F[f.key] = f; });
+      const chosen = { ITEM: [] };
+      let picker = null;
+      const token = A.uid();
+
+      function choicesHtml(f, multi) {
+        return '<div class="choices" data-f="' + f.key + '"' + (multi ? ' data-multi="1"' : '') + '>' +
+          f.options.map(function (o) { return '<button type="button" class="choice" data-v="' + A.esc(o) + '">' + A.esc(o) + '</button>'; }).join('') +
+          '</div>';
+      }
+      function label(f, txt) {
+        return '<label>' + A.esc(txt || f.header) + (f.required ? ' <span class="req">*</span>' : '') + '</label>';
+      }
+
+      view.innerHTML =
+        A.pageHead('Naya Order', 'Customer ka order yahan bharo') +
+
+        '<div class="panel"><div class="panel-head"><h3>Customer</h3></div>' +
+          '<div class="form-grid">' +
+            '<div class="field full">' + label(F.CUSTOMER_NAME, 'Customer / Party ka naam') +
+              '<input class="input" id="o-name" placeholder="Jaise: Jk Snr" autocomplete="off"></div>' +
+            '<div class="field">' + label(F.PHONE, 'Phone number') +
+              '<input class="input" id="o-phone" type="tel" inputmode="numeric" maxlength="14" placeholder="10 ank"></div>' +
+            '<div class="field">' + label(F.CITY, 'Shahar') +
+              '<input class="input" id="o-city" placeholder="Jaise: Srinagar" autocomplete="off"></div>' +
+          '</div>' +
+          '<div class="field">' + label(F.CUSTOMER_TYPE) + choicesHtml(F.CUSTOMER_TYPE) + '</div>' +
+        '</div>' +
+
+        '<div class="panel"><div class="panel-head"><h3>Order</h3></div>' +
+          '<div class="field">' + label(F.ITEM, 'Item (ek se zyada chun sakte ho)') + choicesHtml(F.ITEM, true) + '</div>' +
+          '<div class="field">' + label(F.ORDER_TYPE) + choicesHtml(F.ORDER_TYPE) + '</div>' +
+          '<div class="field">' + label(F.PAYMENT) + choicesHtml(F.PAYMENT) + '</div>' +
+          '<div class="field">' + label(F.ORDER_PHOTO, 'Order parchi ki photo') + '<div id="o-photo"></div></div>' +
+        '</div>' +
+
+        (A.director ? '<div class="panel" style="padding-bottom:0">' + A.nameSelectHtml('ORDER_ENTRY', 'o-by', 'Kis salesperson ka order hai?') + '</div>' : '') +
+
+        '<button type="button" class="btn btn-go btn-block" id="o-save">Order save karo</button>';
+
+      picker = A.photoPicker(A.$('#o-photo', view), { label: 'Parchi ki photo', max: 5 });
+
+      A.$$('[data-f]', view).forEach(function (wrap) {
+        const key = wrap.getAttribute('data-f');
+        const multi = wrap.getAttribute('data-multi') === '1';
+        A.$$('.choice', wrap).forEach(function (b) {
+          b.onclick = function () {
+            const v = b.getAttribute('data-v');
+            if (multi) {
+              const i = chosen[key].indexOf(v);
+              if (i >= 0) chosen[key].splice(i, 1); else chosen[key].push(v);
+              b.classList.toggle('on', i < 0);
+            } else {
+              chosen[key] = v;
+              A.$$('.choice', wrap).forEach(function (x) { x.classList.toggle('on', x === b); });
+            }
+          };
+        });
+      });
+
+      A.$('#o-save', view).onclick = function () {
+        const p = {
+          customerName: A.$('#o-name', view).value.trim(),
+          phone: A.$('#o-phone', view).value.trim(),
+          city: A.$('#o-city', view).value.trim(),
+          item: chosen.ITEM,
+          customerType: chosen.CUSTOMER_TYPE || '',
+          orderType: chosen.ORDER_TYPE || '',
+          payment: chosen.PAYMENT || '',
+          photos: picker.get(),
+          salesperson: A.$('#o-by', view) ? A.$('#o-by', view).value : '',
+          clientToken: token
+        };
+        // Screen pe hi pehli jaanch (server phir se check karta hai)
+        if (!p.customerName) return A.toast('Customer ka naam likho.', 'err');
+        if (!p.customerType) return A.toast('Customer Type chuno.', 'err');
+        if (!p.orderType) return A.toast('Order Type chuno.', 'err');
+        if (!p.payment) return A.toast('Payment chuno.', 'err');
+        if (!p.photos.length) return A.toast('Order parchi ki photo lo.', 'err');
+
+        A.call('createOrder', p, 'Order save ho raha hai...')
+          .then(function (r) { done(view, r); })
+          .catch(function () {});
+      };
+    }
+  };
+
+  function done(view, r) {
+    view.innerHTML =
+      '<div class="panel" style="text-align:center;padding:32px 16px">' +
+        '<div style="width:56px;height:56px;border-radius:50%;background:var(--green-bg);color:var(--green);display:flex;align-items:center;justify-content:center;margin:0 auto 12px">' +
+          '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5 9-10"/></svg></div>' +
+        '<div class="muted">Order save ho gaya</div>' +
+        '<div style="font-size:30px;font-weight:700;letter-spacing:.5px;color:var(--brand);margin:4px 0 6px">' + A.esc(r.orderId) + '</div>' +
+        '<div class="muted small">Ab yeh Stock Team ki list mein hai.</div>' +
+      '</div>' +
+      (r.warning ? '<div class="note warn">' + A.esc(r.warning) + '</div>' : '') +
+      '<div class="btn-row">' +
+        (A.screens.orders ? '<button class="btn btn-ghost" id="d-list">Sab orders</button>' : '') +
+        '<button class="btn btn-main" id="d-new">Aur naya order</button>' +
+      '</div>';
+    A.$('#d-new', view).onclick = function () { A.go('newOrder'); };
+    const l = A.$('#d-list', view);
+    if (l) l.onclick = function () { A.go('orders'); };
+  }
+
+})(window.O2D);
+</script>
+
+  <!--
+  ============================================================
+   Screen_Orders.html  —  "Mere Orders" / "Sab Orders"
+  ============================================================
+   - Salesperson: apne orders | Director / PC: sabke orders
+   - Har order pe: abhi kahan hai ("Bill Banao — Harshit ke paas")
+     ya "Dispatch ho gaya" + transporter
+   - Filter: Chalu / Complete / Sab
+   - Search: Order ID, customer, shahar, bill no., phone
+   - Card pe tap → order ki poori kahani
+  ============================================================
+-->
+<script>
+(function (A) {
+  'use strict';
+
+  A.screens.orders = {
+    render: function (view) {
+      let filter = 'running';
+      let data = null;
+
+      view.innerHTML =
+        A.pageHead('Sab Orders', 'Pichle 30 din') +
+        '<div class="panel" style="padding:12px">' +
+          '<div class="row" style="gap:8px">' +
+            '<input class="input" id="or-q" placeholder="Order ID, customer, bill no. ya phone" autocomplete="off" style="flex:1">' +
+            '<button class="btn btn-main" id="or-go" style="min-width:90px">Dhoondho</button>' +
+          '</div>' +
+          '<div class="choices mt" id="or-f">' +
+            '<button type="button" class="choice on" data-f="running">Chalu</button>' +
+            '<button type="button" class="choice" data-f="complete">Complete</button>' +
+            '<button type="button" class="choice" data-f="all">Sab</button>' +
+          '</div>' +
+        '</div>' +
+        '<div id="or-list"></div>';
+
+      const list = A.$('#or-list', view);
+
+      function cardsHtml(items) {
+        if (!items.length) return '<div class="panel empty"><b>Koi order nahi mila</b>' +
+          (filter === 'running' ? 'Abhi koi order chalu nahi hai.' : 'Filter badal ke dekho.') + '</div>';
+        return items.map(function (c) {
+          const foot = c.complete
+            ? '<span>Dispatch: ' + A.esc(c.dispatchedAt || '-') + (c.transporter ? ' · ' + A.esc(c.transporter) : '') + '</span>'
+            : '<span>' + A.esc(c.whereNow || c.stepLabel || '') + '</span>';
+          const card = Object.assign({}, c);
+          if (c.complete) { card.color = 'done'; card.signal = 'Complete'; }
+          if (c.cancelled) { card.color = ''; card.signal = 'Cancel'; }
+          return A.slipHtml(card, foot + '<span>' + A.esc(c.orderTime || '') + '</span>');
+        }).join('');
+      }
+
+      function bind() {
+        A.$$('.slip', list).forEach(function (b) {
+          b.onclick = function () { A.go('orderDetail', { orderId: b.getAttribute('data-oid'), back: 'orders' }); };
+        });
+      }
+
+      function drawList() {
+        if (!data) return;
+        const items = data.items.filter(function (c) {
+          if (filter === 'running') return !c.complete;
+          if (filter === 'complete') return c.complete;
+          return true;
+        });
+        A.$('.screen-sub', view).textContent = 'Pichle 30 din · ' + data.running + ' chalu · ' + data.complete + ' complete';
+        list.innerHTML = cardsHtml(items);
+        bind();
+      }
+
+      function load() {
+        A.fast('orders', { days: 30 }, function (d) {
+          if (A.current !== 'orders') return;
+          data = d;
+          if (!A.$('#or-q', view).value.trim()) drawList();     // search chal raha ho toh beech mein na badlo
+        }, 'Orders la rahe hain...', true)
+          .catch(function (e) { list.innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>'; });
+      }
+
+      function search() {
+        const q = A.$('#or-q', view).value.trim();
+        if (!q) { drawList(); return; }
+        A.call('search', { query: q }, 'Dhoondh rahe hain...')
+          .then(function (items) {
+            A.$('.screen-sub', view).textContent = '"' + q + '" ke liye ' + items.length + ' order';
+            list.innerHTML = cardsHtml(items.map(function (c) {
+              c.whereNow = c.complete ? 'Complete' : c.stepLabel;
+              return c;
+            }));
+            bind();
+          })
+          .catch(function () {});
+      }
+
+      A.$$('#or-f .choice', view).forEach(function (b) {
+        b.onclick = function () {
+          filter = b.getAttribute('data-f');
+          A.$$('#or-f .choice', view).forEach(function (x) { x.classList.toggle('on', x === b); });
+          A.$('#or-q', view).value = '';
+          drawList();
+        };
+      });
+      A.$('#or-go', view).onclick = search;
+      A.$('#or-q', view).addEventListener('keydown', function (e) { if (e.key === 'Enter') search(); });
+
+      load();
+    }
+  };
+
+})(window.O2D);
+</script>
+
+  <!--
+  ============================================================
+   Screen_OrderDetail.html  —  Order ki poori kahani
+  ============================================================
+   - Upar: Order ID, customer, abhi kahan hai (rang ke saath)
+   - Order ki details + parchi photo
+   - Har step ek line mein (timeline):
+       ✔ ho gaya — kab, kisne (entry kisi aur ne ki ho toh woh bhi),
+         late tha toh kyun, details (bill no., courier, transporter),
+         photos
+       ● abhi yahan ruka hai — deadline
+       ○ abhi baaki
+   - Activity Log (galti mili, cancel wagairah sab)
+   - Button: "Yeh step bharo" (agar aapka step hai)
+   - Director: "Order cancel karo" (reason ke saath)
+  ============================================================
+-->
+<script>
+(function (A) {
+  'use strict';
+
+  const FIELD_LABEL = {
+    MAAL_KAB_AAYEGA: 'Maal kab aayega', BILL_NUMBER: 'Bill No.', COURIER_TYPE: 'Courier',
+    TRANSPORTER: 'Transporter', BILTY_NO: 'Bilty No.'
+  };
+
+  function links(urls) { return A.mediaLinks(urls); }   // "Photo 1 · Video 1"
+
+  A.screens.orderDetail = {
+    render: function (view, params) {
+      view.innerHTML = A.pageHead('Order', 'Load ho raha hai...') + '<div id="od-body"></div>';
+      A.call('orderDetail', { orderId: params.orderId }, 'Order khul raha hai...')
+        .then(function (d) { draw(view, d, params); })
+        .catch(function (e) { A.$('#od-body', view).innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>'; });
+    }
+  };
+
+  function draw(view, d, params) {
+    const back = params.back || 'orders';
+    let status;
+    if (d.cancelled) status = '<span class="pill">Cancel</span>';
+    else if (d.complete) status = '<span class="pill done">Complete</span>';
+    else status = '<span class="pill ' + A.esc(d.signal.color) + '">' + A.esc(d.currentLabel + ' — ' + d.signal.text) + '</span>';
+
+    let h = A.pageHead(d.orderId, d.customer + (d.city ? ' · ' + d.city : ''),
+      '<button class="btn btn-ghost btn-sm" id="od-back">Wapas</button>');
+
+    h += '<div class="panel"><div class="row between" style="flex-wrap:wrap;gap:8px">' + status +
+         '<span class="muted small">Order: ' + A.esc(d.orderTime) + '</span></div>' +
+         (d.cancelled ? '<div class="note err mt" style="margin-bottom:0">Cancel ki wajah: ' + A.esc(d.cancelReason) + '</div>' : '') +
+         '</div>';
+
+    // Order details
+    const det = [
+      ['Phone', d.phone ? '<a href="tel:' + A.esc(d.phone) + '">' + A.esc(d.phone) + '</a>' : ''],
+      ['Item', A.esc(d.item)], ['Customer Type', A.esc(d.customerType)], ['Order Type', A.esc(d.orderType)],
+      ['Payment', A.esc(d.payment)], ['Salesperson', A.esc(d.salesperson)], ['Parchi', links(d.orderPhotos)]
+    ].filter(function (x) { return x[1]; });
+    h += '<div class="panel"><div class="panel-head"><h3>Order ki jaankari</h3></div><ul class="list-plain">' +
+         det.map(function (x) { return '<li class="row between" style="align-items:flex-start"><span class="muted">' + x[0] + '</span><span style="text-align:right;font-weight:500">' + x[1] + '</span></li>'; }).join('') +
+         '</ul></div>';
+
+    // Timeline
+    h += '<div class="panel"><div class="panel-head"><h3>Steps</h3></div><ol class="list-plain">';
+    d.steps.forEach(function (s) {
+      const dot = s.done ? (s.late ? 'var(--amber)' : 'var(--green)') : (s.isCurrent && !d.cancelled ? 'var(--brand)' : 'var(--border-strong)');
+      const fields = Object.keys(s.fields || {}).filter(function (k) { return s.fields[k]; })
+        .map(function (k) { return (FIELD_LABEL[k] || k) + ': ' + A.esc(s.fields[k]); });
+      let sub = '';
+      if (s.done) {
+        sub = A.esc(s.actual) + (s.doneBy ? ' · ' + A.esc(s.doneBy) : '') +
+              (s.enteredBy ? ' (entry: ' + A.esc(s.enteredBy) + ')' : '') +
+              (s.status && s.status !== 'Done' ? ' · ' + A.esc(s.status) : '');
+      } else if (s.isCurrent && !d.cancelled) {
+        sub = 'Abhi yahan · deadline ' + A.esc(s.planned || '-');
+      } else {
+        sub = 'Baaki';
+      }
+      h += '<li style="display:flex;gap:12px;align-items:flex-start">' +
+           '<span style="width:12px;height:12px;border-radius:50%;margin-top:5px;flex:none;background:' + dot + '"></span>' +
+           '<div style="min-width:0;flex:1">' +
+             '<div class="row between"><b style="font-weight:600">' + A.esc(s.label) + '</b>' +
+               (s.done && s.late ? '<span class="pill yellow">Late</span>' : '') + '</div>' +
+             '<div class="muted small">' + sub + '</div>' +
+             (fields.length ? '<div class="small" style="margin-top:2px">' + fields.join(' · ') + '</div>' : '') +
+             (s.lateReason ? '<div class="small" style="color:var(--amber);margin-top:2px">Late: ' + A.esc(s.lateReason) + '</div>' : '') +
+             (s.photos && s.photos.length ? '<div class="small" style="margin-top:2px">' + links(s.photos) + '</div>' : '') +
+           '</div></li>';
+    });
+    h += '</ol></div>';
+
+    // Activity log
+    const extra = (d.history || []).filter(function (x) { return x.kaam === 'Galti mili' || x.kaam === 'Order Cancel' || x.kaam === 'Parchi photo jodi'; });
+    if (extra.length) {
+      h += '<div class="panel"><div class="panel-head"><h3>Aur jaankari</h3></div><ul class="list-plain">' +
+           extra.map(function (x) {
+             return '<li><div class="row between"><b style="font-weight:600">' + A.esc(x.kaam) + '</b><span class="muted small">' + A.esc(x.time) + '</span></div>' +
+                    '<div class="small">' + A.esc(x.details) + ' — ' + A.esc(x.doneBy) + '</div></li>';
+           }).join('') + '</ul></div>';
+    }
+
+    // Buttons
+    if (d.canAct && A.screens.step) h += '<button class="btn btn-go btn-block" id="od-act">"' + A.esc(d.currentLabel) + '" bharo</button>';
+    if (A.staff.isDirector && !d.cancelled) h += '<div class="mt"></div><button class="btn btn-danger btn-block" id="od-cancel">Order cancel karo</button>';
+
+    view.innerHTML = h;
+    A.$('#od-back', view).onclick = function () { A.go(back); };
+    const act = A.$('#od-act', view);
+    if (act) act.onclick = function () { A.lastStep = d.currentStep; A.go('step', { orderId: d.orderId, stepKey: d.currentStep }); };
+    const cancel = A.$('#od-cancel', view);
+    if (cancel) cancel.onclick = function () {
+      A.sheet('<h3>' + A.esc(d.orderId) + ' cancel karna hai?</h3>' +
+        '<p class="muted" style="margin-top:0">Cancel order kisi list mein nahi dikhega. Sheet mein row waise hi rahegi.</p>' +
+        '<div class="field"><label>Cancel kyun? <span class="req">*</span></label>' +
+        '<textarea class="textarea" id="c-why" placeholder="Jaise: Customer ne order wapas liya"></textarea></div>' +
+        '<div class="btn-row"><button class="btn btn-ghost" id="c-no">Rehne do</button><button class="btn btn-danger" id="c-yes">Haan, cancel karo</button></div>',
+        function (el, close) {
+          A.$('#c-no', el).onclick = close;
+          A.$('#c-yes', el).onclick = function () {
+            A.call('cancelOrder', { orderId: d.orderId, reason: A.$('#c-why', el).value }, 'Cancel ho raha hai...')
+              .then(function () { close(); A.toast(d.orderId + ' cancel ho gaya.', 'ok'); A.go('orderDetail', params); })
+              .catch(function () {});
+          };
+        });
+    };
+  }
+
+})(window.O2D);
+</script>
+
+  <!--
+  ============================================================
+   Screen_Dashboard.html  —  Director / PC Dashboard
+  ============================================================
+   Ek nazar mein poora kaam:
+   1. Upar 4 number: chalu orders, late orders, aaj aaye, aaj dispatch
+   2. Kaun sa step kahan atka hai (har step pe kaun hai, kitne pending,
+      kitne late) — sabse zyada atka step saaf dikhe
+   3. Late orders ki list (tap → order ki kahani)
+   4. Staff ka on-time % + Performance (sabse kamzor upar):
+        90% ya zyada   → Excellent (hara)
+        75% – 89%      → Good      (neela)
+        50% – 74%      → Bad       (peela)
+        50% se kam     → Poor      (laal)
+   5. Late hone ki wajahein
+   6. Order se dispatch tak ka average time
+   Samay chuno: Aaj / 1 Hafta / 1 Mahina / 3 Mahine / Apni date
+   (apni date = kis din se kis din tak). Har 60 second mein taaza.
+  ============================================================
+-->
+<script>
+(function (A) {
+  'use strict';
+
+  let timer = null;
+
+  function bar(value, max, color) {
+    const pct = max ? Math.round((value / max) * 100) : 0;
+    return '<div style="height:8px;background:var(--grey-bg);border-radius:4px;overflow:hidden;min-width:60px">' +
+           '<div style="height:100%;width:' + pct + '%;background:' + color + '"></div></div>';
+  }
+
+  /** On-time % → Excellent / Good / Bad / Poor */
+  function grade(pct) {
+    if (pct >= 90) return { label: 'Excellent', cls: 'green' };
+    if (pct >= 75) return { label: 'Good', cls: 'wait' };
+    if (pct >= 50) return { label: 'Bad', cls: 'yellow' };
+    return { label: 'Poor', cls: 'red' };
+  }
+
+  A.screens.dashboard = {
+    render: function (view) {
+      clearInterval(timer);
+
+      // Samay — phone pichla chuna hua yaad rakhta hai
+      const PRESETS = [
+        { key: '1', label: 'Aaj', days: 1 },
+        { key: '7', label: '1 Hafta', days: 7 },
+        { key: '30', label: '1 Mahina', days: 30 },
+        { key: '90', label: '3 Mahine', days: 90 },
+        { key: 'custom', label: 'Apni date' }
+      ];
+      let pick = '30', fromVal = '', toVal = '';
+      try { pick = localStorage.getItem('o2d_dash_pick') || '30'; } catch (e) {}
+      if (!PRESETS.some(function (x) { return x.key === pick; })) pick = '30';
+
+      function ymd(d) {
+        return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+      }
+      const todayStr = ymd(new Date());
+      toVal = todayStr;
+      fromVal = ymd(new Date(Date.now() - 29 * 86400000));
+
+      view.innerHTML =
+        A.pageHead('Dashboard', 'Load ho raha hai...') +
+        '<div class="panel" style="padding:12px 14px">' +
+          '<div class="choices" id="db-days" style="flex-wrap:wrap">' +
+            PRESETS.map(function (x) { return '<button type="button" class="choice' + (x.key === pick ? ' on' : '') + '" data-k="' + x.key + '">' + x.label + '</button>'; }).join('') +
+          '</div>' +
+          '<div id="db-custom" class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:12px;' + (pick === 'custom' ? '' : 'display:none') + '">' +
+            '<div class="field" style="margin:0;flex:1;min-width:140px"><label for="db-from">Kis din se</label><input class="input" type="date" id="db-from" max="' + todayStr + '" value="' + fromVal + '"></div>' +
+            '<div class="field" style="margin:0;flex:1;min-width:140px"><label for="db-to">Kis din tak</label><input class="input" type="date" id="db-to" max="' + todayStr + '" value="' + toVal + '"></div>' +
+            '<button type="button" class="btn btn-main" id="db-go">Dekho</button>' +
+          '</div>' +
+        '</div>' +
+        '<div id="db-body"></div>';
+
+      A.$$('#db-days .choice', view).forEach(function (b) {
+        b.onclick = function () {
+          pick = b.getAttribute('data-k');
+          try { localStorage.setItem('o2d_dash_pick', pick); } catch (e) {}
+          A.$$('#db-days .choice', view).forEach(function (x) { x.classList.toggle('on', x === b); });
+          A.$('#db-custom', view).style.display = pick === 'custom' ? '' : 'none';
+          if (pick !== 'custom') load(true);
+        };
+      });
+      A.$('#db-go', view).onclick = function () {
+        const f = A.$('#db-from', view).value, t = A.$('#db-to', view).value;
+        if (!f || !t) return A.toast('Dono date chuno.', 'err');
+        if (f > t) return A.toast('"Kis din se" wali date pehle ki honi chahiye.', 'err');
+        fromVal = f; toVal = t;
+        load(true);
+      };
+
+      function period() {
+        if (pick === 'custom') return { from: fromVal, to: toVal };
+        return { days: (PRESETS.filter(function (x) { return x.key === pick; })[0] || {}).days || 30 };
+      }
+
+      function load(showLoader) {
+        if (A.current !== 'dashboard') { clearInterval(timer); return; }
+        A.fast('dashboard', period(), draw, 'Dashboard taiyar ho raha hai...', showLoader)
+          .catch(function (e) { if (showLoader) A.$('#db-body', view).innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>'; });
+      }
+
+      function draw(d) {
+        if (A.current !== 'dashboard') return;
+        const s = d.summary;
+        A.redCount = s.red;
+        A.drawTabs();
+        A.$('.screen-sub', view).textContent = (d.periodLabel || '') + ' · Taaza: ' + d.at;
+
+        let h = '<div class="kpis">' +
+          kpi('Chalu orders', s.running, '') +
+          kpi('Late orders', s.red, s.red ? 'red' : '') +
+          kpi('Aaj aaye', s.todayOrders, '') +
+          kpi('Aaj dispatch', s.todayDispatch, 'green') +
+          '</div>';
+
+        // ---- Step board ----
+        const maxT = Math.max.apply(null, d.steps.map(function (x) { return x.total; }).concat([1]));
+        h += '<div class="panel"><div class="panel-head"><h3>Kaun sa step kahan atka hai</h3></div>' +
+          '<div class="table-wrap"><table class="tbl"><thead><tr><th>Step</th><th>Kiske paas</th><th class="num">Pending</th><th class="num">Late</th><th></th></tr></thead><tbody>' +
+          d.steps.map(function (x) {
+            return '<tr><td><b style="font-weight:600">' + A.esc(x.label) + '</b></td>' +
+              '<td class="muted">' + A.esc(x.who) + '</td>' +
+              '<td class="num">' + x.total + (x.wait ? ' <span class="muted small">(' + x.wait + ' intezaar)</span>' : '') + '</td>' +
+              '<td class="num" style="color:' + (x.red ? 'var(--red)' : 'var(--text-3)') + '">' + x.red + '</td>' +
+              '<td style="width:30%">' + bar(x.total, maxT, x.red ? 'var(--red)' : 'var(--brand)') + '</td></tr>';
+          }).join('') +
+          '</tbody></table></div></div>';
+
+        // ---- Late orders ----
+        h += '<div class="panel"><div class="panel-head"><h3>Late orders</h3><span class="count">' + d.redList.length + '</span></div>' +
+          (d.redList.length
+            ? '<div id="db-red">' + d.redList.map(function (c) {
+                return A.slipHtml(c, '<span>' + A.esc(c.stepLabel) + '</span><span>Deadline: ' + A.esc(c.deadline) + '</span>');
+              }).join('') + '</div>'
+            : '<div class="empty" style="padding:20px"><b>Koi order late nahi</b>Sab time pe chal raha hai.</div>') +
+          '</div>';
+
+        // ---- Staff ----
+        const COLS = { green: 'var(--green)', wait: 'var(--blue)', yellow: 'var(--amber)', red: 'var(--red)' };
+        const gCount = { Excellent: 0, Good: 0, Bad: 0, Poor: 0 };
+        d.staff.forEach(function (p) { gCount[grade(p.onTimePct).label]++; });
+        h += '<div class="panel"><div class="panel-head"><h3>Staff Performance (' + A.esc(d.periodLabel || d.days + ' din') + ')</h3>' +
+          (d.staff.length
+            ? '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+                ['Excellent', 'Good', 'Bad', 'Poor'].filter(function (k) { return gCount[k]; }).map(function (k) {
+                  return '<span class="pill ' + grade({ Excellent: 95, Good: 80, Bad: 60, Poor: 0 }[k]).cls + '">' + gCount[k] + ' ' + k + '</span>';
+                }).join('') + '</div>'
+            : '') +
+          '</div>' +
+          (d.staff.length
+            ? '<div class="table-wrap"><table class="tbl"><thead><tr><th>Staff</th><th>Performance</th><th class="num">Kaam kiya</th><th class="num">Late</th><th class="num">Time pe</th><th></th></tr></thead><tbody>' +
+              d.staff.map(function (p) {
+                const g = grade(p.onTimePct);
+                const col = COLS[g.cls];
+                return '<tr><td><b style="font-weight:600">' + A.esc(p.name) + '</b></td>' +
+                  '<td><span class="pill ' + g.cls + '">' + g.label + '</span></td>' +
+                  '<td class="num">' + p.done + '</td>' +
+                  '<td class="num">' + p.late + '</td><td class="num" style="color:' + col + '">' + p.onTimePct + '%</td>' +
+                  '<td style="width:24%">' + bar(p.onTimePct, 100, col) + '</td></tr>';
+              }).join('') + '</tbody></table></div>' +
+              '<p class="muted small" style="margin:10px 0 0">Time pe kaam: 90%+ Excellent · 75–89% Good · 50–74% Bad · 50% se kam Poor</p>'
+            : '<div class="empty" style="padding:20px"><b>Abhi data nahi</b>Steps hone ke baad yahan dikhega.</div>') +
+          '</div>';
+
+        // ---- Late reasons + avg ----
+        const maxR = Math.max.apply(null, d.lateReasons.map(function (r) { return r.count; }).concat([1]));
+        h += '<div class="panel"><div class="panel-head"><h3>Late hone ki wajahein</h3></div>' +
+          (d.lateReasons.length
+            ? '<ul class="list-plain">' + d.lateReasons.map(function (r) {
+                return '<li><div class="row between"><span>' + A.esc(r.reason) + '</span><b>' + r.count + '</b></div>' + bar(r.count, maxR, 'var(--amber)') + '</li>';
+              }).join('') + '</ul>'
+            : '<div class="muted">Koi late nahi hua.</div>') +
+          '</div>';
+
+        h += '<div class="panel row between"><span class="muted">Order se dispatch tak average (sirf kaam ke ghante)</span>' +
+             '<b style="font-size:18px">' + A.esc(s.avgOrderToDispatch) + '</b></div>' +
+             '<p class="muted small">' + s.completeInPeriod + ' order complete hue (' + A.esc(d.periodLabel || d.days + ' din') + ').</p>';
+
+        A.$('#db-body', view).innerHTML = h;
+        A.$$('#db-red .slip', view).forEach(function (b) {
+          b.onclick = function () { A.go('orderDetail', { orderId: b.getAttribute('data-oid'), back: 'dashboard' }); };
+        });
+      }
+
+      function kpi(label, val, cls) {
+        return '<div class="kpi ' + cls + '"><div class="k-label">' + A.esc(label) + '</div><div class="k-val">' + A.esc(val) + '</div></div>';
+      }
+
+      load(true);
+      timer = setInterval(function () { load(false); }, 60000);
+    }
+  };
+
+})(window.O2D);
+</script>
+
+  <!--
+  ============================================================
+   Screen_Staff.html  —  Staff sambhalo (sirf Director)
+  ============================================================
+   "Aur" → "Staff sambhalo" se khulta hai.
+   - Har staff: role, kaunse steps, Active, PIN set hai ya nahi
+   - Naya staff jodo / badlo (role, phone, steps pe tick, Active)
+   - PIN set karo (4 ank)
+   - Link: copy karo ya seedha WhatsApp pe bhejo
+   - "Link badlo" — naya link banta hai, purana turant band
+     (staff ne kaam chhoda, ya link kisi aur ke paas chala gaya)
+   Badlav hote hi Staff tab aur BMP ki "Who" row update.
+  ============================================================
+-->
+<script>
+(function (A) {
+  'use strict';
+
+  A.screens.staff = {
+    render: function (view) {
+      if (!A.staff.isDirector) {
+        view.innerHTML = '<div class="note err">Yeh page sirf Director ke liye hai.</div>';
+        return;
+      }
+      view.innerHTML = A.pageHead('Staff', 'Load ho raha hai...',
+        '<button class="btn btn-main btn-sm" id="st-add">+ Naya staff</button>') + '<div id="st-list"></div>';
+      A.$('#st-add', view).onclick = function () { edit(null); };
+      load();
+
+      function load() {
+        A.call('staffOverview', {}, 'Staff la rahe hain...')
+          .then(draw)
+          .catch(function (e) { A.$('#st-list', view).innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>'; });
+      }
+
+      function draw(list) {
+        A.$('.screen-sub', view).textContent = list.filter(function (s) { return s.active; }).length + ' active staff';
+        A.$('#st-list', view).innerHTML = list.map(function (s, i) {
+          return '<div class="panel" style="opacity:' + (s.active ? 1 : .6) + '">' +
+            '<div class="row between" style="align-items:flex-start;gap:8px">' +
+              '<div style="min-width:0"><b style="font-size:16px;font-weight:600">' + A.esc(s.name) + '</b>' +
+                '<div class="muted small">' + A.esc(s.role) + (s.phone ? ' · ' + A.esc(s.phone) : '') + '</div></div>' +
+              '<div class="row" style="gap:6px;flex-wrap:wrap;justify-content:flex-end">' +
+                (s.active ? '<span class="pill green">Active</span>' : '<span class="pill">Band</span>') +
+                (s.pinSet ? '<span class="pill done">PIN set</span>' : '<span class="pill yellow">PIN nahi</span>') +
+              '</div>' +
+            '</div>' +
+            '<div class="small mt" style="margin-top:8px">' + A.esc(s.stepLabels.join(', ') || '-') + '</div>' +
+            '<div class="row mt" style="gap:8px;flex-wrap:wrap">' +
+              '<button class="btn btn-ghost btn-sm" data-a="edit" data-i="' + i + '">Badlo</button>' +
+              '<button class="btn btn-ghost btn-sm" data-a="pin" data-i="' + i + '">PIN set karo</button>' +
+              (s.link ? '<button class="btn btn-ghost btn-sm" data-a="share" data-i="' + i + '">Link bhejo</button>' : '') +
+              '<button class="btn btn-ghost btn-sm" data-a="newlink" data-i="' + i + '">Link badlo</button>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+
+        A.$$('[data-a]', view).forEach(function (b) {
+          const s = list[parseInt(b.getAttribute('data-i'), 10)];
+          b.onclick = function () {
+            const a = b.getAttribute('data-a');
+            if (a === 'edit') edit(s);
+            if (a === 'pin') setPin(s);
+            if (a === 'share') share(s);
+            if (a === 'newlink') newLink(s);
+          };
+        });
+      }
+
+      /* ---- Naya / badlo ---- */
+      function edit(s) {
+        const isNew = !s;
+        s = s || { name: '', role: 'Staff', phone: '', steps: [], active: true, note: '' };
+        const steps = (A.config.steps || []);
+        A.sheet(
+          '<h3>' + (isNew ? 'Naya staff' : A.esc(s.name)) + '</h3>' +
+          (isNew ? '<div class="field"><label>Naam <span class="req">*</span></label><input class="input" id="e-name" placeholder="Jaise: Ramesh">' +
+                   '<div class="hint">Naam baad mein nahi badlega — purane record isi naam se rahenge.</div></div>' : '') +
+          '<div class="field"><label>Role</label><div class="choices" id="e-role">' +
+            A.config.roles.map(function (r) { return '<button type="button" class="choice' + (r === s.role ? ' on' : '') + '" data-v="' + A.esc(r) + '">' + A.esc(r) + '</button>'; }).join('') +
+          '</div><div class="hint">Director / PC = har step kar sakte hain.</div></div>' +
+          '<div class="field" id="e-steps-f"><label>Kaunse kaam karega?</label><div class="choices" id="e-steps">' +
+            steps.map(function (st) { return '<button type="button" class="choice' + (s.steps.indexOf(st.key) >= 0 ? ' on' : '') + '" data-v="' + st.key + '">' + A.esc(st.label) + '</button>'; }).join('') +
+          '</div></div>' +
+          '<div class="field"><label>Phone</label><input class="input" id="e-phone" type="tel" inputmode="numeric" value="' + A.esc(s.phone) + '" placeholder="10 ank (WhatsApp ke liye)"></div>' +
+          '<div class="field"><label>Note</label><input class="input" id="e-note" value="' + A.esc(s.note || '') + '"></div>' +
+          '<div class="field"><label class="row" style="gap:10px;cursor:pointer"><input type="checkbox" id="e-active" style="width:20px;height:20px"' + (s.active ? ' checked' : '') + '> Active (link chalu)</label></div>' +
+          '<button class="btn btn-main btn-block" id="e-save">Save karo</button>',
+          function (el, close) {
+            let role = s.role;
+            const picked = s.steps.slice();
+            function syncRole() { A.$('#e-steps-f', el).classList.toggle('hide', role !== 'Staff'); }
+            A.$$('#e-role .choice', el).forEach(function (b) {
+              b.onclick = function () { role = b.getAttribute('data-v'); A.$$('#e-role .choice', el).forEach(function (x) { x.classList.toggle('on', x === b); }); syncRole(); };
+            });
+            A.$$('#e-steps .choice', el).forEach(function (b) {
+              b.onclick = function () {
+                const k = b.getAttribute('data-v'), i = picked.indexOf(k);
+                if (i >= 0) picked.splice(i, 1); else picked.push(k);
+                b.classList.toggle('on', i < 0);
+              };
+            });
+            syncRole();
+            A.$('#e-save', el).onclick = function () {
+              A.call('saveStaff', {
+                isNew: isNew,
+                name: isNew ? A.$('#e-name', el).value : s.name,
+                role: role, steps: role === 'Staff' ? picked : [],
+                phone: A.$('#e-phone', el).value, note: A.$('#e-note', el).value,
+                active: A.$('#e-active', el).checked
+              }, 'Save ho raha hai...')
+                .then(function () { close(); A.toast('Save ho gaya.', 'ok'); load(); })
+                .catch(function () {});
+            };
+          });
+      }
+
+      /* ---- PIN ---- */
+      function setPin(s) {
+        A.sheet('<h3>' + A.esc(s.name) + ' ka PIN</h3>' +
+          '<div class="field"><label>Naya PIN (4 ank)</label><input class="input pin-input" id="n-pin" inputmode="numeric" maxlength="4" style="margin-top:0">' +
+          '<div class="hint">0000, 1234 jaisa aasaan PIN nahi chalega. Staff ko yeh PIN bata dena.</div></div>' +
+          '<button class="btn btn-main btn-block" id="n-save">PIN set karo</button>',
+          function (el, close) {
+            A.$('#n-save', el).onclick = function () {
+              A.call('setPin', { name: s.name, pin: A.$('#n-pin', el).value }, 'PIN set ho raha hai...')
+                .then(function (r) { close(); A.toast(r.message, 'ok'); load(); })
+                .catch(function () {});
+            };
+          });
+      }
+
+      /* ---- Link bhejo ---- */
+      function share(s) {
+        const msg = 'Namaste ' + s.name + ',\nRK Garg Jeans — Order To Dispatch app ka aapka link:\n' + s.link +
+                    '\n\nLink kholke apna 4 ank ka PIN daalo. Yeh link kisi aur ko mat bhejna.';
+        const wa = 'https://wa.me/' + (s.phone ? '91' + s.phone : '') + '?text=' + encodeURIComponent(msg);
+        A.sheet('<h3>' + A.esc(s.name) + ' ka link</h3>' +
+          '<div class="field"><input class="input" id="l-url" readonly value="' + A.esc(s.link) + '"></div>' +
+          '<div class="btn-row"><button class="btn btn-ghost" id="l-copy">Copy karo</button>' +
+          '<a class="btn btn-go" href="' + A.esc(wa) + '" target="_blank" rel="noopener">WhatsApp pe bhejo</a></div>' +
+          (s.pinSet ? '' : '<div class="note warn mt" style="margin-bottom:0">Iska PIN abhi set nahi hai — pehle PIN set karo.</div>'),
+          function (el) {
+            A.$('#l-copy', el).onclick = function () {
+              const inp = A.$('#l-url', el);
+              inp.select();
+              try { navigator.clipboard.writeText(inp.value); } catch (e) { document.execCommand('copy'); }
+              A.toast('Link copy ho gaya.', 'ok');
+            };
+          });
+      }
+
+      /* ---- Naya link ---- */
+      function newLink(s) {
+        A.sheet('<h3>' + A.esc(s.name) + ' ka link badlein?</h3>' +
+          '<p class="muted" style="margin-top:0">Iska istemaal tab karo jab staff kaam chhod de, ya link kisi aur ke paas chala jaye. Purana link turant band ho jayega aur naya link banega — sahi staff ko naya link "Link bhejo" se dobara bhejna padega.</p>' +
+          '<div class="btn-row"><button class="btn btn-ghost" id="k-no">Rehne do</button><button class="btn btn-main" id="k-yes">Haan, link badlo</button></div>',
+          function (el, close) {
+            A.$('#k-no', el).onclick = close;
+            A.$('#k-yes', el).onclick = function () {
+              A.call('newLink', { name: s.name }, 'Naya link ban raha hai...')
+                .then(function () { close(); A.toast('Naya link ban gaya.', 'ok'); load(); })
+                .catch(function () {});
+            };
+          });
+      }
+    }
+  };
+
+})(window.O2D);
+</script>
+
+
+  <script>
+    window.addEventListener('load', function () {
+      if (window.O2D_CONFIG_ERROR) { document.getElementById('view').innerHTML = '<div class="note err">' + window.O2D_CONFIG_ERROR + '</div>'; return; }
+      O2D.start();
+    });
+  </script>
+</body>
+</html>
