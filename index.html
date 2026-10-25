@@ -2083,6 +2083,9 @@ window.O2D = window.O2D || {};
    - Salesperson: apne orders | Director / PC: sabke orders
    - Har order pe: abhi kahan hai ("Bill Banao — Harshit ke paas")
      ya "Dispatch ho gaya" + transporter
+   - ORDER KA SAFAR: har card pe 7 khaane — hara = ho gaya,
+     rangeen = abhi yahan, grey = baaki
+   - Upar "Kis step pe kitne": dabao → sirf us step ke orders
    - Filter: Chalu / Complete / Sab
    - Search: Order ID, customer, shahar, bill no., phone
    - Card pe tap → order ki poori kahani
@@ -2110,9 +2113,55 @@ window.O2D = window.O2D || {};
             '<button type="button" class="choice" data-f="all">Sab</button>' +
           '</div>' +
         '</div>' +
+        '<div id="or-steps"></div>' +
         '<div id="or-list"></div>';
 
       const list = A.$('#or-list', view);
+      let stepFilter = '';
+
+      // Order ka safar — 7 khaane
+      const NOW_COLOR = { red: 'var(--red)', yellow: 'var(--amber)', wait: 'var(--blue)', green: 'var(--brand)' };
+      function flowHtml(c) {
+        const f = c.flow || [];
+        if (!f.length) return '';
+        const nowCol = NOW_COLOR[c.color] || 'var(--brand)';
+        return '<div style="display:flex;gap:3px;margin-top:10px" aria-label="Order ka safar">' +
+          f.map(function (x) {
+            const col = x.st === 'd' ? 'var(--green)' : (x.st === 'n' ? nowCol : 'var(--border)');
+            const txt = x.st === 'n' ? 'color:' + nowCol + ';font-weight:700' : (x.st === 'd' ? 'color:var(--text-2)' : 'color:var(--text-3, #98A2B3)');
+            return '<div style="flex:1;min-width:0;text-align:center">' +
+              '<div style="height:6px;border-radius:3px;background:' + col + '"></div>' +
+              '<div style="font-size:10.5px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' + txt + '">' +
+                (x.st === 'd' ? '✓ ' : '') + A.esc(x.s) + '</div></div>';
+          }).join('') + '</div>';
+      }
+
+      // Kis step pe kitne chalu orders — dabao toh sirf wahi
+      function drawSteps() {
+        const box = A.$('#or-steps', view);
+        if (!data || filter === 'complete') { box.innerHTML = ''; return; }
+        const counts = {}, order = [];
+        data.items.forEach(function (c) {
+          if (c.complete || !c.step) return;
+          if (!counts[c.step]) { counts[c.step] = { label: c.stepLabel, n: 0, red: 0 }; order.push(c.step); }
+          counts[c.step].n++;
+          if (c.color === 'red') counts[c.step].red++;
+        });
+        const steps = (A.config.steps || []).map(function (s) { return s.key; }).filter(function (k) { return counts[k]; });
+        if (!steps.length) { box.innerHTML = ''; return; }
+        box.innerHTML = '<div class="panel" style="padding:12px"><div class="muted small" style="margin-bottom:8px">Kis step pe kitne order — dabao toh sirf wahi dikhenge</div>' +
+          '<div class="choices" style="flex-wrap:wrap">' +
+            '<button type="button" class="choice' + (stepFilter ? '' : ' on') + '" data-s="">Sab step</button>' +
+            steps.map(function (k) {
+              const x = counts[k];
+              return '<button type="button" class="choice' + (stepFilter === k ? ' on' : '') + '" data-s="' + A.esc(k) + '">' +
+                A.esc(x.label) + ' <b>' + x.n + '</b>' + (x.red ? ' <span style="color:var(--red)">(' + x.red + ' late)</span>' : '') + '</button>';
+            }).join('') +
+          '</div></div>';
+        A.$$('[data-s]', box).forEach(function (b) {
+          b.onclick = function () { stepFilter = b.getAttribute('data-s'); drawList(); };
+        });
+      }
 
       function cardsHtml(items) {
         if (!items.length) return '<div class="panel empty"><b>Koi order nahi mila</b>' +
@@ -2124,7 +2173,8 @@ window.O2D = window.O2D || {};
           const card = Object.assign({}, c);
           if (c.complete) { card.color = 'done'; card.signal = 'Complete'; }
           if (c.cancelled) { card.color = ''; card.signal = 'Cancel'; }
-          return A.slipHtml(card, foot + '<span>' + A.esc(c.orderTime || '') + '</span>');
+          return A.slipHtml(card, foot + '<span>' + A.esc(c.orderTime || '') + '</span>')
+            .replace('<div class="slip-foot">', flowHtml(c) + '<div class="slip-foot">');
         }).join('');
       }
 
@@ -2136,7 +2186,9 @@ window.O2D = window.O2D || {};
 
       function drawList() {
         if (!data) return;
+        drawSteps();
         const items = data.items.filter(function (c) {
+          if (stepFilter && (c.complete || c.step !== stepFilter)) return false;
           if (filter === 'running') return !c.complete;
           if (filter === 'complete') return c.complete;
           return true;
@@ -2172,7 +2224,7 @@ window.O2D = window.O2D || {};
 
       A.$$('#or-f .choice', view).forEach(function (b) {
         b.onclick = function () {
-          filter = b.getAttribute('data-f');
+          filter = b.getAttribute('data-f'); stepFilter = '';
           A.$$('#or-f .choice', view).forEach(function (x) { x.classList.toggle('on', x === b); });
           A.$('#or-q', view).value = '';
           drawList();
