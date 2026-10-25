@@ -38,7 +38,7 @@
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <style>
   :root {
     /* Company */
@@ -645,23 +645,115 @@ window.O2D = window.O2D || {};
    *  onData(data, isOld)
    *  showLoader = false → peeche ka taaza (60 sec wala) — purana dobara nahi dikhate
    */
+  const FRESH_MS = 20000;   // 20 sec se naya data phone mein ho toh server ka chakkar hi nahi
+
   A.fast = function (action, payload, onData, loadingText, showLoader) {
     const key = cacheKey(action, payload);
     let old = null;
     if (showLoader !== false) {
       try { old = JSON.parse(store.get(key) || 'null'); } catch (e) { old = null; }
     }
+    // Abhi-abhi aaya data → seedha dikhao, server pe mat jao
+    if (old && old.d !== undefined && old.t && Date.now() - old.t < FRESH_MS) {
+      onData(old.d, false);
+      return Promise.resolve(old.d);
+    }
+    // App khulte waqt "boot" waise bhi Home ka data la raha hai → alag se mat mangao
+    if (action === 'home' && A.bootLoading && old && old.d !== undefined) {
+      onData(old.d, true);
+      return Promise.resolve(old.d);
+    }
     if (old && old.d !== undefined) { onData(old.d, true); refreshing(true); }
     const p = (old || showLoader === false) ? A.api(action, payload) : A.call(action, payload, loadingText);
     return p.then(function (d) {
       if (old) refreshing(false);
-      store.set(key, JSON.stringify({ t: Date.now(), d: d }));
+      putCache(action, payload, d);
+      if (action === 'home') A.seedHome(d);
       onData(d, false);
       return d;
     }, function (e) {
       if (old) { refreshing(false); A.toast(e.message, 'err'); return null; }   // purana data screen pe rehne do
       throw e;
     });
+  };
+
+  function putCache(action, payload, d) {
+    store.set(cacheKey(action, payload), JSON.stringify({ t: Date.now(), d: d }));
+  }
+
+  /** Home ke data se har kaam ki list bhi phone mein rakh do → dabba dabate hi list */
+  A.seedHome = function (home) {
+    if (!home) return;
+    putCache('home', {}, home);
+    (home.groups || []).forEach(function (g) {
+      putCache('stepList', { step: g.step }, {
+        at: home.at,
+        red: g.items.filter(function (c) { return c.color === 'red'; }).length,
+        groups: [g]
+      });
+    });
+  };
+
+  /** List ke orders ki detail pehle se le aao (ek hi chakkar mein) → order pe tap karte hi khule */
+  A.prefetchDetails = function (ids) {
+    const need = (ids || []).filter(function (id) {
+      try { const c = JSON.parse(store.get(cacheKey('orderDetail', { orderId: id })) || 'null'); return !c || Date.now() - c.t > 60000; }
+      catch (e) { return true; }
+    }).slice(0, 10);
+    if (!need.length) return;
+    A.api('details', { orderIds: need }).then(function (map) {
+      Object.keys(map || {}).forEach(function (id) { putCache('orderDetail', { orderId: id }, map[id]); });
+    }).catch(function () {});
+  };
+
+  /** Kuch save hua → phone ka data "purana" maan lo (dikhega turant, par taaza bhi aayega) */
+  A.cacheStale = function () {
+    try {
+      Object.keys(localStorage).forEach(function (k) {
+        if (k.indexOf(CACHE_PREFIX) !== 0) return;
+        if (k.indexOf('|orderDetail|') >= 0) { localStorage.removeItem(k); return; }
+        const c = JSON.parse(localStorage.getItem(k) || 'null');
+        if (c) { c.t = 0; localStorage.setItem(k, JSON.stringify(c)); }
+      });
+      const b = JSON.parse(localStorage.getItem(BOOT_KEY) || 'null');
+      if (b) { b.t = 0; localStorage.setItem(BOOT_KEY, JSON.stringify(b)); }
+    } catch (e) {}
+  };
+
+  /** Step save hua → wo order list / ginti se turant hata do (server ka intezaar kiye bina) */
+  A.cacheDropOrder = function (orderId) {
+    try {
+      Object.keys(localStorage).forEach(function (k) {
+        if (k.indexOf(CACHE_PREFIX) !== 0) return;
+        const c = JSON.parse(localStorage.getItem(k) || 'null');
+        if (!c || !c.d) return;
+        const d = c.d;
+        if (k.indexOf('|home|') >= 0 && d.groups) {
+          d.groups.forEach(function (g) {
+            const it = g.items.filter(function (x) { return x.orderId === orderId; })[0];
+            if (!it) return;
+            g.items = g.items.filter(function (x) { return x.orderId !== orderId; });
+            g.count = g.items.length;
+            d.total = Math.max(0, (d.total || 0) - 1);
+            if (it.color === 'red') d.red = Math.max(0, (d.red || 0) - 1);
+            (d.steps || []).forEach(function (s) {
+              if (s.step !== g.step) return;
+              s.count = g.items.length;
+              s.red = g.items.filter(function (x) { return x.color === 'red'; }).length;
+              s.yellow = g.items.filter(function (x) { return x.color === 'yellow'; }).length;
+              s.wait = g.items.filter(function (x) { return x.color === 'wait'; }).length;
+            });
+          });
+        } else if (k.indexOf('|stepList|') >= 0 && d.groups) {
+          d.groups.forEach(function (g) {
+            g.items = g.items.filter(function (x) { return x.orderId !== orderId; });
+            g.count = g.items.length;
+          });
+        }
+        localStorage.setItem(k, JSON.stringify(c));
+      });
+    } catch (e) {}
+    A.cacheStale();
   };
 
   /** Loading ke saath api — galti pe toast */
@@ -1134,28 +1226,49 @@ window.O2D = window.O2D || {};
     A.director = d.me.isAdmin ? d.me : null;
   }
 
-  A.start = function (thenGo) {
+  /**
+   * fresh = login ke jawab mein aaya data (tab server pe dobara jaane ki zaroorat nahi)
+   */
+  A.start = function (thenGo, fresh) {
     if (!A.token()) { A.showLogin(); return; }
+
+    if (fresh && fresh.me && fresh.config) {
+      fresh.t = Date.now();
+      store.set(BOOT_KEY, JSON.stringify(fresh));
+      applyBoot(fresh);
+      A.seedHome(fresh.home);
+      A.go(thenGo || 'home');
+      return;
+    }
 
     // Pichli baar ki settings phone mein hain → app turant khulo, taaza peeche se
     let cached = null;
     try { cached = JSON.parse(store.get(BOOT_KEY) || 'null'); } catch (e) { cached = null; }
-    if (cached && cached.me && cached.config) { applyBoot(cached); A.go(thenGo || 'home'); }
+    const haveCache = !!(cached && cached.me && cached.config);
+    if (haveCache && cached.t && Date.now() - cached.t < FRESH_MS) { applyBoot(cached); A.go(thenGo || 'home'); return; }   // abhi-abhi ka hai
+    A.bootLoading = haveCache;
+    if (haveCache) { applyBoot(cached); refreshing(true); A.go(thenGo || 'home'); }
     else A.loading(true, 'Khul raha hai...');
 
     A.api('boot', {})
       .then(function (d) {
+        if (A.bootLoading) refreshing(false);
+        A.bootLoading = false;
         A.loading(false);
         const first = !cached || !cached.me;
         const changed = !first && (cached.me.name !== d.me.name || cached.me.isAdmin !== d.me.isAdmin ||
           JSON.stringify(cached.me.steps) !== JSON.stringify(d.me.steps));
         applyBoot(d);
+        d.t = Date.now();
         store.set(BOOT_KEY, JSON.stringify(d));
-        if (first || changed) A.go(thenGo || 'home');
+        A.seedHome(d.home);
+        if (first || changed || A.current === 'home') A.go(first || changed ? (thenGo || 'home') : 'home');
         else A.drawTabs();
       })
       .catch(function (e) {
         A.loading(false);
+        if (A.bootLoading) refreshing(false);
+        A.bootLoading = false;
         if (A.current === 'login') return;     // login khatam → login window khul chuki
         if (cached && cached.me) { A.toast(e.message, 'err'); return; }
         A.$('#view').innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>' +
@@ -1311,7 +1424,7 @@ window.O2D = window.O2D || {};
             saveName(name);
             A.setLogin(d.token);
             document.body.classList.remove('is-login');
-            A.start('home');
+            A.start('home', d.boot);      // login ke saath hi data aa gaya → seedha Home
           })
           .catch(function (e) {
             A.loading(false);
@@ -1475,7 +1588,7 @@ window.O2D = window.O2D || {};
           });
       }
 
-      function draw(d) {
+      function draw(d, isOld) {
         if (A.current !== 'myWork') return;
         const g = (d.groups || [])[0] || { items: [] };
         A.$('.screen-sub', view).textContent = g.items.length
@@ -1498,6 +1611,8 @@ window.O2D = window.O2D || {};
         A.$$('.slip', body).forEach(function (b) {
           b.onclick = function () { A.go('step', { orderId: b.getAttribute('data-oid'), stepKey: step }); };
         });
+        // Upar ke orders ki detail pehle se le aao → tap karte hi form khule
+        if (!isOld) A.prefetchDetails(g.items.map(function (c) { return c.orderId; }));
       }
 
       load(true);
@@ -1552,9 +1667,18 @@ window.O2D = window.O2D || {};
   A.screens.step = {
     render: function (view, params) {
       view.innerHTML = A.pageHead('Order', 'Load ho raha hai...') + '<div id="sf-body"></div>';
-      A.call('orderDetail', { orderId: params.orderId }, 'Order khul raha hai...')
-        .then(function (d) { draw(view, d); })
-        .catch(function (e) { A.$('#sf-body', view).innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>'; });
+      // Phone mein pehle se ho toh turant form; taaza data aane pe sirf tab dobara banao
+      // jab order sach mein badla ho (warna bhar rahe form ko mat chhedo)
+      let shown = null;
+      A.fast('orderDetail', { orderId: params.orderId }, function (d, isOld) {
+        if (A.current !== 'step') return;
+        if (!shown) { shown = d; draw(view, d); return; }
+        if (!isOld && (d.currentStep !== shown.currentStep || d.cancelled !== shown.cancelled || d.complete !== shown.complete)) {
+          shown = d; draw(view, d);
+          A.toast('Is order mein abhi badlav hua hai — taaza dikha rahe hain.', 'err');
+        }
+      }, 'Order khul raha hai...', true)
+        .catch(function (e) { if (!shown) A.$('#sf-body', view).innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>'; });
     }
   };
 
@@ -1753,6 +1877,7 @@ window.O2D = window.O2D || {};
       A.call('submitStep', { stepKey: stepKey, orderId: d.orderId, input: input }, 'Save ho raha hai...')
         .then(function (r) {
           if (r.needLateReason) return askLate(r, input, send);
+          A.cacheDropOrder(d.orderId);     // list / ginti se turant hatao
           A.toast(r.complete ? 'Order complete ho gaya.' : 'Ho gaya. Ab: ' + r.nextLabel, 'ok');
           goBack();
         })
@@ -1774,7 +1899,7 @@ window.O2D = window.O2D || {};
         function (el, close) {
           A.$('#g-save', el).onclick = function () {
             A.call('billIssue', { orderId: d.orderId, note: A.$('#g-note', el).value, doneBy: who }, 'Record ho raha hai...')
-              .then(function (r) { close(); A.toast(r.message, 'ok'); })
+              .then(function (r) { close(); A.cacheStale(); A.toast(r.message, 'ok'); })
               .catch(function () {});
           };
         });
@@ -1923,7 +2048,7 @@ window.O2D = window.O2D || {};
         if (!p.photos.length) return A.toast('Order parchi ki photo lo.', 'err');
 
         A.call('createOrder', p, 'Order save ho raha hai...')
-          .then(function (r) { done(view, r); })
+          .then(function (r) { A.cacheStale(); done(view, r); })
           .catch(function () {});
       };
     }
@@ -2094,9 +2219,12 @@ window.O2D = window.O2D || {};
   A.screens.orderDetail = {
     render: function (view, params) {
       view.innerHTML = A.pageHead('Order', 'Load ho raha hai...') + '<div id="od-body"></div>';
-      A.call('orderDetail', { orderId: params.orderId }, 'Order khul raha hai...')
-        .then(function (d) { draw(view, d, params); })
-        .catch(function (e) { A.$('#od-body', view).innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>'; });
+      let shown = false;
+      A.fast('orderDetail', { orderId: params.orderId }, function (d) {
+        if (A.current !== 'orderDetail') return;
+        shown = true; draw(view, d, params);
+      }, 'Order khul raha hai...', true)
+        .catch(function (e) { if (!shown) A.$('#od-body', view).innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>'; });
     }
   };
 
@@ -2183,7 +2311,7 @@ window.O2D = window.O2D || {};
           A.$('#c-no', el).onclick = close;
           A.$('#c-yes', el).onclick = function () {
             A.call('cancelOrder', { orderId: d.orderId, reason: A.$('#c-why', el).value }, 'Cancel ho raha hai...')
-              .then(function () { close(); A.toast(d.orderId + ' cancel ho gaya.', 'ok'); A.go('orderDetail', params); })
+              .then(function () { close(); A.cacheDropOrder(d.orderId); A.toast(d.orderId + ' cancel ho gaya.', 'ok'); A.go('orderDetail', params); })
               .catch(function () {});
           };
         });
