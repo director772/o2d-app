@@ -579,9 +579,14 @@ window.O2D = window.O2D || {};
       }
       function fail(e) {
         const m = String((e && e.message) || e || '');
-        reject(new Error(/network|NetworkError|Failed to fetch|Load failed/i.test(m)
-          ? 'Internet nahi chal raha. Net check karke dobara try karo.'
-          : (m || 'Kuch galat ho gaya. Dobara try karo.')));
+        if (/network|NetworkError|Failed to fetch|Load failed/i.test(m)) {
+          return reject(new Error(API_URL
+            ? (navigator.onLine === false
+                ? 'Internet nahi chal raha. Net check karke dobara try karo.'
+                : 'Server (Apps Script) se jud nahi paaye. Director: Apps Script mein Deploy → "Who has access: Anyone" aur "New version" check karo.')
+            : 'Internet nahi chal raha. Net check karke dobara try karo.'));
+        }
+        reject(new Error(m || 'Kuch galat ho gaya. Dobara try karo.'));
       }
 
       if (API_URL) {
