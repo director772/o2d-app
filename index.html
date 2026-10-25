@@ -764,6 +764,76 @@ window.O2D = window.O2D || {};
       .catch(function (e) { A.loading(false); A.toast(e.message, 'err'); throw e; });
   };
 
+  /* ---------------- Save peeche se (button turant) ---------------- */
+
+  const saving = [];
+
+  function savingPill() {
+    let el = A.$('#o2d-saving');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'o2d-saving';
+      el.setAttribute('role', 'status');
+      el.style.cssText = 'position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 84px);' +
+        'background:var(--brand);color:#fff;font-size:13px;font-weight:600;padding:8px 14px;border-radius:999px;' +
+        'z-index:60;box-shadow:0 4px 14px rgba(0,0,0,.18);display:none';
+      document.body.appendChild(el);
+    }
+    el.textContent = saving.length === 1 ? 'Save ho raha hai… (' + saving[0].label + ')' : saving.length + ' save ho rahe hain…';
+    el.style.display = saving.length ? 'block' : 'none';
+  }
+
+  function isNetErr(e) {
+    return /Internet nahi|se jud nahi|Server se jawab nahi|mana kar diya/i.test(String(e && e.message || ''));
+  }
+
+  /**
+   * job = { label, orderId, run() → Promise, okText(r), onLate(r) }
+   * Net ki dikkat → khud 2 baar aur try. Phir bhi na ho → saaf message.
+   */
+  A.bgSave = function (job) {
+    job.tries = 0;
+    saving.push(job);
+    savingPill();
+    go();
+    function done() {
+      const i = saving.indexOf(job);
+      if (i >= 0) saving.splice(i, 1);
+      savingPill();
+    }
+    function go() {
+      job.tries++;
+      job.run().then(function (r) {
+        done();
+        if (r && r.needLateReason) { if (job.onLate) job.onLate(r); return; }
+        A.cacheStale();
+        A.toast(job.okText ? job.okText(r) : 'Save ho gaya.', 'ok');
+      }, function (e) {
+        if (isNetErr(e) && job.tries < 3) { setTimeout(go, 2500 * job.tries); return; }
+        done();
+        A.cacheStale();          // order wapas list mein aa jayega
+        A.sheet(
+          '<h3>Save nahi hua</h3>' +
+          '<p style="margin-top:0"><b>' + A.esc(job.label) + '</b></p>' +
+          '<div class="note err">' + A.esc(e.message || 'Kuch galat ho gaya.') + '</div>' +
+          '<div class="btn-row" style="margin-top:12px">' +
+            (job.orderId ? '<button class="btn btn-ghost" id="bs-open">Order kholo</button>' : '') +
+            '<button class="btn btn-main" id="bs-retry">Dobara try karo</button>' +
+          '</div>',
+          function (el, close) {
+            A.$('#bs-retry', el).onclick = function () { close(); A.bgSave(job); };
+            const op = A.$('#bs-open', el);
+            if (op) op.onclick = function () { close(); A.go('step', { orderId: job.orderId }); };
+          });
+      });
+    }
+  };
+
+  // Save chal raha ho aur koi app band kare → browser poochega
+  window.addEventListener('beforeunload', function (e) {
+    if (saving.length) { e.preventDefault(); e.returnValue = ''; }
+  });
+
   /* ---------------- Photo chhota karna ---------------- */
 
   /** File → { name, mimeType, data(base64), preview } */
@@ -1643,7 +1713,11 @@ window.O2D = window.O2D || {};
                           (By Hand ho toh bilty zaroori nahi)
    4. Staff ka naam login se apne aap jaata hai. Director / PC ke liye
       "Kaam kisne kiya" + "Kaam kab hua"
-   5. Late ho toh "Late kyun hua?" poochta hai, phir save
+   5. Late ho toh "Late kyun hua?" pehle hi poochta hai, phir save
+   6. SAVE PEECHE SE: "Done" dabate hi screen wapas list pe (order list se
+      hat jaata hai), save background mein hota hai. Time wahi gina jaata
+      hai jab button dabaya (net slow ho tab bhi). Save na ho paaye toh
+      saaf message + "Dobara try karo" / "Order kholo".
   ============================================================
 -->
 <script>
@@ -1873,15 +1947,23 @@ window.O2D = window.O2D || {};
       return input;
     }
 
+    let left = false;
     function send(input) {
-      A.call('submitStep', { stepKey: stepKey, orderId: d.orderId, input: input }, 'Save ho raha hai...')
-        .then(function (r) {
-          if (r.needLateReason) return askLate(r, input, send);
-          A.cacheDropOrder(d.orderId);     // list / ginti se turant hatao
-          A.toast(r.complete ? 'Order complete ho gaya.' : 'Ho gaya. Ab: ' + r.nextLabel, 'ok');
-          goBack();
-        })
-        .catch(function () {});
+      input.tapAt = input.tapAt || Date.now();          // button kab dabaya — yahi time gina jayega
+      // Deadline pehle hi nikal chuki → wajah abhi pooch lo (server ka ek chakkar bacha)
+      if (!input.lateReason && d.signal && d.signal.color === 'red') {
+        return askLate({ message: d.orderId + ' — is step ki deadline nikal chuki hai.', reasons: A.config.lateReasons }, input, send);
+      }
+      const label = d.orderId + ' · ' + d.currentLabel;
+      A.bgSave({
+        label: label,
+        orderId: d.orderId,
+        run: function () { return A.api('submitStep', { stepKey: stepKey, orderId: d.orderId, input: input }); },
+        okText: function (r) { return d.orderId + ': ' + (r.complete ? 'order complete ho gaya.' : 'ho gaya. Ab: ' + r.nextLabel); },
+        onLate: function (r) { r.message = label + ' — ' + (r.message || 'late hai.'); askLate(r, input, send); }
+      });
+      A.cacheDropOrder(d.orderId);     // list / ginti se turant hatao
+      if (!left) { left = true; goBack(); }
     }
 
     A.$('#sf-save', box).onclick = function () {
