@@ -2599,7 +2599,7 @@ window.O2D = window.O2D || {};
         // ---- Staff ----
         const COLS = { green: 'var(--green)', wait: 'var(--blue)', yellow: 'var(--amber)', red: 'var(--red)' };
         const gCount = { Excellent: 0, Good: 0, Bad: 0, Poor: 0 };
-        d.staff.forEach(function (p) { gCount[grade(p.onTimePct).label]++; });
+        d.staff.forEach(function (p) { if (p.done) gCount[grade(p.onTimePct).label]++; });
         h += '<div class="panel"><div class="panel-head"><h3>Staff Performance (' + A.esc(d.periodLabel || d.days + ' din') + ')</h3>' +
           (d.staff.length
             ? '<div class="row" style="gap:6px;flex-wrap:wrap">' +
@@ -2611,6 +2611,11 @@ window.O2D = window.O2D || {};
           (d.staff.length
             ? '<div class="table-wrap"><table class="tbl"><thead><tr><th>Staff</th><th>Performance</th><th class="num">Kaam kiya</th><th class="num">Late</th><th class="num">Time pe</th><th></th></tr></thead><tbody>' +
               d.staff.map(function (p) {
+                if (!p.done) {
+                  return '<tr><td><b style="font-weight:600">' + A.esc(p.name) + '</b></td>' +
+                    '<td><span class="pill" style="background:var(--grey-bg);color:var(--text-2)">Abhi kaam nahi</span></td>' +
+                    '<td class="num">0</td><td class="num">0</td><td class="num muted">—</td><td></td></tr>';
+                }
                 const g = grade(p.onTimePct);
                 const col = COLS[g.cls];
                 return '<tr><td><b style="font-weight:600">' + A.esc(p.name) + '</b></td>' +
@@ -2619,7 +2624,7 @@ window.O2D = window.O2D || {};
                   '<td class="num">' + p.late + '</td><td class="num" style="color:' + col + '">' + p.onTimePct + '%</td>' +
                   '<td style="width:24%">' + bar(p.onTimePct, 100, col) + '</td></tr>';
               }).join('') + '</tbody></table></div>' +
-              '<p class="muted small" style="margin:10px 0 0">Time pe kaam: 90%+ Excellent · 75–89% Good · 50–74% Bad · 50% se kam Poor</p>'
+              '<p class="muted small" style="margin:10px 0 0">Time pe kaam: 90%+ Excellent · 75–89% Good · 50–74% Bad · 50% se kam Poor. Naam Staff tab se aate hain (test order ka kaam nahi gina jaata).</p>'
             : '<div class="empty" style="padding:20px"><b>Abhi data nahi</b>Steps hone ke baad yahan dikhega.</div>') +
           '</div>';
 
