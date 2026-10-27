@@ -622,9 +622,16 @@ window.O2D = window.O2D || {};
     return CACHE_PREFIX + (A.staff ? A.staff.name : '') + '|' + action + '|' + JSON.stringify(payload || {});
   }
 
-  let refreshCount = 0;
+  // "Taaza ho raha hai" patti: purana data screen pe hai hi, isliye patti
+  // sirf tab dikhao jab server 1.5 sec se zyada le — warna chupchaap update.
+  let refreshCount = 0, refreshTimer = null;
   function refreshing(on) {
     refreshCount = Math.max(0, refreshCount + (on ? 1 : -1));
+    clearTimeout(refreshTimer);
+    if (refreshCount) { refreshTimer = setTimeout(showRefresh, 1500); return; }
+    showRefresh();
+  }
+  function showRefresh() {
     let el = A.$('#o2d-refresh');
     if (!el) {
       el = document.createElement('div');
@@ -646,6 +653,29 @@ window.O2D = window.O2D || {};
    *  showLoader = false → peeche ka taaza (60 sec wala) — purana dobara nahi dikhate
    */
   const FRESH_MS = 20000;   // 20 sec se naya data phone mein ho toh server ka chakkar hi nahi
+  const FRESH_BY_ACTION = { dashboard: 60000 };   // Dashboard har minute khud taaza hota hai
+  const inflight = {};      // jo data abhi aa hi raha hai, use dobara mat mangao
+
+  function apiOnce(action, payload) {
+    const key = cacheKey(action, payload);
+    if (inflight[key]) return inflight[key];
+    const p = A.api(action, payload).then(function (d) {
+      delete inflight[key];
+      putCache(action, payload, d);
+      return d;
+    }, function (e) { delete inflight[key]; throw e; });
+    inflight[key] = p;
+    return p;
+  }
+
+  /** Peeche-peeche data le aao (screen pe kuch nahi badalta) — jaise Director ke liye Dashboard */
+  A.prefetch = function (action, payload) {
+    try {
+      const c = JSON.parse(store.get(cacheKey(action, payload)) || 'null');
+      if (c && c.t && Date.now() - c.t < (FRESH_BY_ACTION[action] || FRESH_MS)) return;
+    } catch (e) {}
+    apiOnce(action, payload).catch(function () {});
+  };
 
   A.fast = function (action, payload, onData, loadingText, showLoader) {
     const key = cacheKey(action, payload);
@@ -654,7 +684,7 @@ window.O2D = window.O2D || {};
       try { old = JSON.parse(store.get(key) || 'null'); } catch (e) { old = null; }
     }
     // Abhi-abhi aaya data → seedha dikhao, server pe mat jao
-    if (old && old.d !== undefined && old.t && Date.now() - old.t < FRESH_MS) {
+    if (old && old.d !== undefined && old.t && Date.now() - old.t < (FRESH_BY_ACTION[action] || FRESH_MS)) {
       onData(old.d, false);
       return Promise.resolve(old.d);
     }
@@ -664,7 +694,8 @@ window.O2D = window.O2D || {};
       return Promise.resolve(old.d);
     }
     if (old && old.d !== undefined) { onData(old.d, true); refreshing(true); }
-    const p = (old || showLoader === false) ? A.api(action, payload) : A.call(action, payload, loadingText);
+    // Pehle se aa raha ho (prefetch) toh usi ka intezaar, naya chakkar nahi
+    const p = (old || showLoader === false || inflight[key]) ? apiOnce(action, payload) : A.call(action, payload, loadingText);
     return p.then(function (d) {
       if (old) refreshing(false);
       putCache(action, payload, d);
@@ -1594,6 +1625,14 @@ window.O2D = window.O2D || {};
       function load(showLoader) {
         if (A.current !== 'home') { clearInterval(timer); return; }
         A.fast('home', {}, draw, 'Kaam la rahe hain...', showLoader)
+          .then(function () {
+            // Director / PC: Dashboard peeche-peeche taiyar → tab dabate hi turant khule
+            if (showLoader && A.staff && A.staff.isAdmin) {
+              let pick = '30';
+              try { pick = localStorage.getItem('o2d_dash_pick') || '30'; } catch (e) {}
+              if (pick !== 'custom') setTimeout(function () { A.prefetch('dashboard', { days: +pick || 30 }); }, 300);
+            }
+          })
           .catch(function (e) { if (showLoader && A.current === 'home') A.$('#h-body', view).innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>'; });
       }
 
