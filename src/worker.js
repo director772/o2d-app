@@ -47,6 +47,7 @@ export default {
 
   async scheduled(event, env, ctx) {
     await ensureTables(env);
+    await setMeta(env, 'cronAt', String(Date.now()));
     await refreshMirror(env, 'cron');
   }
 };
@@ -60,6 +61,9 @@ async function handleApi(request, env, ctx) {
   const token = String(body.token || '');
   const payload = body.payload || {};
   if (action === 'loginInfo' && payload.code) payload.code = String(payload.code).trim().toUpperCase();
+
+  // Peeche-peeche: copy purani ho (cron ruka ho) toh taaza karwa do — screen ko wait nahi
+  ctx.waitUntil(kickIfStale(env).catch(() => {}));
 
   if (READS.has(action)) {
     try {
@@ -253,6 +257,15 @@ async function refreshMirrorInner(env, why) {
   ]);
 }
 
+async function kickIfStale(env) {
+  const m = await getMetaAll(env);
+  const last = Math.max(Number(m.builtAt || 0), Number(m.checkedAt || 0));
+  if (Date.now() - last < 6 * 60000) return;
+  if (m.kickAt && Date.now() - Number(m.kickAt) < 60000) return;
+  await setMeta(env, 'kickAt', String(Date.now()));
+  await refreshMirror(env, 'stale');
+}
+
 async function status(env) {
   const m = await getMetaAll(env);
   return {
@@ -260,6 +273,7 @@ async function status(env) {
     banneMeLaga: m.buildMs ? m.buildMs + ' ms' : null,
     screens: m.screens || 0,
     lastCheck: m.checkedAt ? new Date(Number(m.checkedAt)).toISOString() : null,
+    lastCron: m.cronAt ? new Date(Number(m.cronAt)).toISOString() : null,
     error: m.lastError || ''
   };
 }
