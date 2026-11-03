@@ -16,10 +16,12 @@ const PUBLIC_READS = new Set(['loginInfo', 'loginNames']);
 const DIRTY_MS = 120000;     // save ke baad itni der tak (ya copy banne tak) seedha Sheet se
 
 let tablesReady = false;
+let lastKickCheck = 0;
 async function ensureTables(env) {
   if (tablesReady) return;
   await env.DB.batch([
-    env.DB.prepare('CREATE TABLE IF NOT EXISTS cache (k TEXT PRIMARY KEY, v TEXT, ver TEXT)'),
+    env.DB.prepare('DROP TABLE IF EXISTS cache'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS screens (k TEXT PRIMARY KEY, v TEXT, h TEXT)'),
     env.DB.prepare('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)'),
     env.DB.prepare('CREATE TABLE IF NOT EXISTS tokens (h TEXT PRIMARY KEY, name TEXT, staff TEXT, at INTEGER)')
   ]);
@@ -47,7 +49,6 @@ export default {
 
   async scheduled(event, env, ctx) {
     await ensureTables(env);
-    await setMeta(env, 'cronAt', String(Date.now()));
     await refreshMirror(env, 'cron');
   }
 };
@@ -62,8 +63,8 @@ async function handleApi(request, env, ctx) {
   const payload = body.payload || {};
   if (action === 'loginInfo' && payload.code) payload.code = String(payload.code).trim().toUpperCase();
 
-  // Peeche-peeche: copy purani ho (cron ruka ho) toh taaza karwa do — screen ko wait nahi
-  ctx.waitUntil(kickIfStale(env).catch(() => {}));
+  // Peeche-peeche: copy purani ho (cron ruka ho) toh taaza karwa do — 2 minute mein ek baar hi dekhta hai
+  if (Date.now() - lastKickCheck > 120000) { lastKickCheck = Date.now(); ctx.waitUntil(kickIfStale(env).catch(() => {})); }
 
   if (READS.has(action)) {
     try {
@@ -80,7 +81,6 @@ async function handleApi(request, env, ctx) {
   ctx.waitUntil((async () => {
     await learnToken(env, action, token, res);
     if (WRITES.has(action) && res && res.ok) await refreshMirror(env, 'write');
-    else if (READS.has(action) && res && res.ok && res.who) await storeLazy(env, res.who, action, payload, res.data);
   })().catch(() => {}));
 
   if (res && typeof res === 'object') delete res.who;
@@ -127,7 +127,7 @@ async function fromMirror(env, action, token, payload) {
     env.DB.prepare('SELECT k, v FROM meta'),
     env.DB.prepare('SELECT name, staff FROM tokens WHERE h = ?').bind(h),
     env.DB.prepare(
-      `SELECT c.k, c.v, c.ver FROM cache c WHERE c.k IN (
+      `SELECT c.k, c.v FROM screens c WHERE c.k IN (
          SELECT t.name || s.column1 FROM tokens t, (VALUES ${ph}) s WHERE t.h = ?
          UNION ALL SELECT '*' || s2.column1 FROM (VALUES ${ph}) s2)`
     ).bind(...suffixes, h, ...suffixes)
@@ -146,7 +146,7 @@ async function fromMirror(env, action, token, payload) {
   }
 
   const rows = {};
-  for (const r of rowsR.results || []) if (r.ver === meta.ver) rows[r.k] = r.v;
+  for (const r of rowsR.results || []) rows[r.k] = r.v;
   const pick = (suf) => rows[who + suf] || rows['*' + suf] || null;
 
   if (action === 'details') {
@@ -172,29 +172,7 @@ function tokenAlive(token) {
   } catch (e) { return false; }
 }
 
-async function storeLazy(env, who, action, payload, data) {
-  if (action === 'details' || PUBLIC_READS.has(action)) return;
-  const meta = await getMetaAll(env);
-  if (!meta.ver) return;
-  await env.DB.prepare('INSERT OR REPLACE INTO cache (k, v, ver) VALUES (?, ?, ?)')
-    .bind(cacheKey(who, action, payload), JSON.stringify(data), meta.ver).run();
-}
-
 /* ---------------- Token → naam ---------------- */
-
-async function tokenName(env, token, staffVer) {
-  if (!token) return null;
-  // Token ki expiry khud check (naam|code|exp . sign)
-  try {
-    const p = token.split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
-    const txt = new TextDecoder().decode(Uint8Array.from(atob(p), (c) => c.charCodeAt(0)));
-    const exp = Number(txt.split('|')[2]);
-    if (!(exp > Date.now())) return null;
-  } catch (e) { return null; }
-  const row = await env.DB.prepare('SELECT name, staff FROM tokens WHERE h = ?').bind(await sha(token)).first();
-  if (!row || row.staff !== staffVer) return null;   // staff mein badlav → Sheet se dobara pakka karo
-  return row.name;
-}
 
 async function learnToken(env, action, token, res) {
   if (!res) return;
@@ -210,8 +188,11 @@ async function learnToken(env, action, token, res) {
     name = (res.data.boot && res.data.boot.me && res.data.boot.me.name) || (res.data.staff && res.data.staff.name) || '';
   }
   if (!t || !name) return;
+  const h = await sha(t);
+  const old = await env.DB.prepare('SELECT name, staff FROM tokens WHERE h = ?').bind(h).first();
+  if (old && old.name === name && old.staff === meta.staff) return;   // pehle se hai → likhne ki zaroorat nahi
   await env.DB.prepare('INSERT OR REPLACE INTO tokens (h, name, staff, at) VALUES (?, ?, ?, ?)')
-    .bind(await sha(t), name, meta.staff, Date.now()).run();
+    .bind(h, name, meta.staff, Date.now()).run();
 }
 
 /* ---------------- Copy banana ---------------- */
@@ -231,36 +212,54 @@ async function refreshMirrorInner(env, why) {
     knownVer: meta.ver || ''
   });
   if (!res || !res.ok) { await setMeta(env, 'lastError', (res && res.error) || 'no response'); return; }
-  if (res.same) { await setMeta(env, 'checkedAt', String(Date.now())); return; }
+  if (res.same) {
+    // Kuch nahi badla → kuch mat likho (sirf 5 minute mein ek baar "dekha" note)
+    if (!meta.checkedAt || Date.now() - Number(meta.checkedAt) > 300000) await setMeta(env, 'checkedAt', String(Date.now()));
+    return;
+  }
 
   // Purana build naye ke upar na chadhe
   const now = await getMetaAll(env);
   if (Number(now.builtFrom || 0) > started) return;
 
   const ver = res.ver.full;
-  const stmts = [];
-  for (const e of res.mirror || []) {
-    stmts.push(env.DB.prepare('INSERT OR REPLACE INTO cache (k, v, ver) VALUES (?, ?, ?)')
-      .bind(cacheKey(e.who, e.action, e.payload), JSON.stringify(e.data), ver));
-  }
-  for (let i = 0; i < stmts.length; i += 80) await env.DB.batch(stmts.slice(i, i + 80));
 
-  await env.DB.batch([
+  // Sirf jo screen badli hai wahi likho (CRM jaisa) — baaki ko chhuo bhi mat
+  const have = {};
+  const cur = await env.DB.prepare('SELECT k, h FROM screens').all();
+  for (const r of cur.results || []) have[r.k] = r.h;
+
+  const stmts = [];
+  const seen = {};
+  for (const e of res.mirror || []) {
+    const k = cacheKey(e.who, e.action, e.payload);
+    const v = JSON.stringify(e.data);
+    // "at" (kab bana) har baar badalta hai — use chhod ke dekho asli data badla ya nahi
+    const h = await sha(JSON.stringify(e.data, (key, val) => (key === 'at' ? undefined : val)));
+    seen[k] = true;
+    if (have[k] === h) continue;
+    stmts.push(env.DB.prepare('INSERT OR REPLACE INTO screens (k, v, h) VALUES (?, ?, ?)').bind(k, v, h));
+  }
+  for (const k of Object.keys(have)) {
+    if (!seen[k]) stmts.push(env.DB.prepare('DELETE FROM screens WHERE k = ?').bind(k));
+  }
+  const changed = stmts.length;
+
+  stmts.push(
     metaStmt(env, 'ver', ver),
-    metaStmt(env, 'staff', res.ver.staff),
     metaStmt(env, 'builtFrom', String(started)),
     metaStmt(env, 'builtAt', String(Date.now())),
-    metaStmt(env, 'buildMs', String(Date.now() - started)),
-    metaStmt(env, 'screens', String(stmts.length)),
-    metaStmt(env, 'lastError', ''),
-    env.DB.prepare('DELETE FROM cache WHERE ver != ?').bind(ver)
-  ]);
+    metaStmt(env, 'info', JSON.stringify({ ms: Date.now() - started, screens: Object.keys(seen).length, changed: changed }))
+  );
+  if (now.staff !== res.ver.staff) stmts.push(metaStmt(env, 'staff', res.ver.staff));
+  if (now.lastError) stmts.push(metaStmt(env, 'lastError', ''));
+  for (let i = 0; i < stmts.length; i += 80) await env.DB.batch(stmts.slice(i, i + 80));
 }
 
 async function kickIfStale(env) {
   const m = await getMetaAll(env);
   const last = Math.max(Number(m.builtAt || 0), Number(m.checkedAt || 0));
-  if (Date.now() - last < 6 * 60000) return;
+  if (Date.now() - last < 8 * 60000) return;
   if (m.kickAt && Date.now() - Number(m.kickAt) < 60000) return;
   await setMeta(env, 'kickAt', String(Date.now()));
   await refreshMirror(env, 'stale');
@@ -268,12 +267,14 @@ async function kickIfStale(env) {
 
 async function status(env) {
   const m = await getMetaAll(env);
+  let info = {};
+  try { info = JSON.parse(m.info || '{}'); } catch (e) {}
   return {
     copyBani: m.builtAt ? new Date(Number(m.builtAt)).toISOString() : null,
-    banneMeLaga: m.buildMs ? m.buildMs + ' ms' : null,
-    screens: m.screens || 0,
+    banneMeLaga: info.ms ? info.ms + ' ms' : null,
+    screens: info.screens || 0,
+    pichliBaarBadli: info.changed,
     lastCheck: m.checkedAt ? new Date(Number(m.checkedAt)).toISOString() : null,
-    lastCron: m.cronAt ? new Date(Number(m.cronAt)).toISOString() : null,
     error: m.lastError || ''
   };
 }
