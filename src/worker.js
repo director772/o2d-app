@@ -35,12 +35,19 @@ export default {
       return handleApi(request, env, ctx);
     }
     if (url.pathname === '/api/status') return json(await status(env));
+    if (url.pathname === '/api/refresh') {
+      // Copy turant taaza (30 sec mein ek hi baar)
+      const m = await getMetaAll(env);
+      if (m.builtAt && Date.now() - Number(m.builtAt) < 30000) return json(await status(env));
+      await refreshMirror(env, 'manual');
+      return json(await status(env));
+    }
     return env.ASSETS.fetch(request);
   },
 
   async scheduled(event, env, ctx) {
     await ensureTables(env);
-    ctx.waitUntil(refreshMirror(env, 'cron'));
+    await refreshMirror(env, 'cron');
   }
 };
 
@@ -176,9 +183,14 @@ async function learnToken(env, action, token, res) {
 /* ---------------- Copy banana ---------------- */
 
 async function refreshMirror(env, why) {
+  try { await refreshMirrorInner(env, why); }
+  catch (e) { await setMeta(env, 'lastError', why + ': ' + String(e && e.stack || e).slice(0, 500)).catch(() => {}); }
+}
+
+async function refreshMirrorInner(env, why) {
   const started = Date.now();
   const meta = await getMetaAll(env);
-  const force = why === 'write' || !meta.ver;
+  const force = why === 'write' || why === 'manual' || !meta.ver;
   const res = await forward(env, {
     mirrorKey: env.MIRROR_KEY,
     action: force ? 'mirrorBuild' : 'mirrorCheck',
