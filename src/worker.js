@@ -101,41 +101,71 @@ async function forward(env, body) {
 
 /** Copy mein se data — sirf jab copy taaza ho aur token jaana-pehchana ho */
 async function fromMirror(env, action, token, payload) {
-  const meta = await getMetaAll(env);
+  // Suffix = "|action|payload" — naam token se database khud jodta hai (EK hi chakkar)
+  const isPublic = PUBLIC_READS.has(action);
+  let suffixes;
+  if (action === 'details') {
+    const ids = (payload.orderIds || []).slice(0, 15);
+    if (!ids.length) return {};
+    suffixes = ids.map((id) => cacheKey('', 'orderDetail', { orderId: id }));
+  } else {
+    suffixes = [cacheKey('', action, payload)];
+  }
+
+  let h = '';
+  if (!isPublic) {
+    if (!tokenAlive(token)) return null;
+    h = await sha(token);
+  }
+
+  const ph = suffixes.map(() => '(?)').join(',');
+  const [metaR, tokR, rowsR] = await env.DB.batch([
+    env.DB.prepare('SELECT k, v FROM meta'),
+    env.DB.prepare('SELECT name, staff FROM tokens WHERE h = ?').bind(h),
+    env.DB.prepare(
+      `SELECT c.k, c.v, c.ver FROM cache c WHERE c.k IN (
+         SELECT t.name || s.column1 FROM tokens t, (VALUES ${ph}) s WHERE t.h = ?
+         UNION ALL SELECT '*' || s2.column1 FROM (VALUES ${ph}) s2)`
+    ).bind(...suffixes, h, ...suffixes)
+  ]);
+
+  const meta = {};
+  for (const r of metaR.results || []) meta[r.k] = r.v;
   if (!meta.ver) return null;
   if (meta.dirty && Number(meta.dirty) > Number(meta.builtFrom || 0) && Date.now() - Number(meta.dirty) < DIRTY_MS) return null;
 
   let who = '*';
-  if (!PUBLIC_READS.has(action)) {
-    who = await tokenName(env, token, meta.staff);
-    if (!who) return null;
+  if (!isPublic) {
+    const t = (tokR.results || [])[0];
+    if (!t || t.staff !== meta.staff) return null;   // staff mein badlav → Sheet se dobara pakka karo
+    who = t.name;
   }
+
+  const rows = {};
+  for (const r of rowsR.results || []) if (r.ver === meta.ver) rows[r.k] = r.v;
+  const pick = (suf) => rows[who + suf] || rows['*' + suf] || null;
 
   if (action === 'details') {
     const ids = (payload.orderIds || []).slice(0, 15);
-    if (!ids.length) return {};
-    const keys = ids.map((id) => cacheKey(who, 'orderDetail', { orderId: id }));
-    const rows = await getRows(env, keys, meta.ver);
     const out = {};
     for (let i = 0; i < ids.length; i++) {
-      if (!rows[keys[i]]) return null;           // koi bhi kam ho → Sheet se poora
-      out[ids[i]] = rows[keys[i]];
+      const v = pick(suffixes[i]);
+      if (!v) return null;                        // koi bhi kam ho → Sheet se poora
+      out[ids[i]] = JSON.parse(v);
     }
     return out;
   }
-
-  const k1 = cacheKey(who, action, payload);
-  const k2 = cacheKey('*', action, payload);
-  const rows = await getRows(env, who === '*' ? [k2] : [k1, k2], meta.ver);
-  return rows[k1] || rows[k2] || null;
+  const v = pick(suffixes[0]);
+  return v ? JSON.parse(v) : null;
 }
 
-async function getRows(env, keys, ver) {
-  const ph = keys.map(() => '?').join(',');
-  const r = await env.DB.prepare(`SELECT k, v FROM cache WHERE ver = ? AND k IN (${ph})`).bind(ver, ...keys).all();
-  const out = {};
-  for (const row of r.results || []) out[row.k] = JSON.parse(row.v);
-  return out;
+function tokenAlive(token) {
+  if (!token) return false;
+  try {
+    const p = token.split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
+    const txt = new TextDecoder().decode(Uint8Array.from(atob(p), (c) => c.charCodeAt(0)));
+    return Number(txt.split('|')[2]) > Date.now();
+  } catch (e) { return false; }
 }
 
 async function storeLazy(env, who, action, payload, data) {
