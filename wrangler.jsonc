@@ -1,0 +1,14 @@
+{
+  "name": "o2d-app",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api", "/api/*"] },
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": {
+    "APPS_URL": "https://script.google.com/macros/s/AKfycbzSPwJDqeSKER6vSozAnZ4qj0Le0dLeTOJzY7YSac3DRIXGrZCxMAmxcYZkb_gYDKA/exec"
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "o2d-cache", "database_id": "2a69e998-08c5-4e58-88e5-6193d9dc64e3" }
+  ],
+  "observability": { "enabled": true }
+}
