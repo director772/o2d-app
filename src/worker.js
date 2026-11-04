@@ -12,6 +12,8 @@
 const READS = new Set(['boot', 'me', 'home', 'stepList', 'orders', 'orderDetail', 'details', 'dashboard', 'loginInfo', 'loginNames']);
 // Ye kaam data badalte hain → copy dobara banao
 const WRITES = new Set(['createOrder', 'addOrderPhotos', 'submitStep', 'billIssue', 'cancelOrder', 'saveStaff', 'setPin', 'newLink', 'changePin']);
+// Order ke kaam: save ke saath hi halki copy
+const ORDER_WRITES = new Set(['createOrder', 'addOrderPhotos', 'submitStep', 'billIssue', 'cancelOrder']);
 const PUBLIC_READS = new Set(['loginInfo', 'loginNames']);
 const DIRTY_MS = 120000;     // save ke baad itni der tak (ya copy banne tak) seedha Sheet se
 
@@ -75,13 +77,23 @@ async function handleApi(request, env, ctx) {
 
   // Apps Script (asli data) se
   const started = Date.now();
-  if (WRITES.has(action)) await setMeta(env, 'dirty', String(started));
-  const res = await forward(env, body);
-
-  ctx.waitUntil((async () => {
-    await learnToken(env, action, token, res);
-    if (WRITES.has(action) && res && res.ok) await refreshMirror(env, 'write');
-  })().catch(() => {}));
+  let res;
+  if (ORDER_WRITES.has(action)) {
+    // Save + halki copy EK hi chakkar mein → jawab aate hi Cloudflare taaza, next step turant
+    await env.DB.batch([metaStmt(env, 'dirty', String(started)), metaStmt(env, 'dirtyOrder', String(payload.orderId || ''))]);
+    res = await forward(env, { mirrorKey: env.MIRROR_KEY, action: 'writeAndMirror', writeAction: action, token: token, payload: payload });
+    if (res && res.ok && res.mirror && res.ver) {
+      try { await storeMirror(env, res.mirror, res.ver, started, true); } catch (e) { /* cron bana lega */ }
+    } else if (res && res.ok) {
+      ctx.waitUntil(refreshMirror(env, 'write'));
+    }
+    if (res && typeof res === 'object') { delete res.mirror; delete res.ver; }
+  } else {
+    if (WRITES.has(action)) await setMeta(env, 'dirty', String(started));
+    res = await forward(env, body);
+    if (WRITES.has(action) && res && res.ok) ctx.waitUntil(refreshMirror(env, 'write'));
+  }
+  ctx.waitUntil(learnToken(env, action, token, res).catch(() => {}));
 
   if (res && typeof res === 'object') delete res.who;
   return json(res);
@@ -108,7 +120,9 @@ async function fromMirror(env, action, token, payload) {
   // Suffix = "|action|payload" — naam token se database khud jodta hai (EK hi chakkar)
   const isPublic = PUBLIC_READS.has(action);
   let suffixes;
-  if (action === 'details') {
+  if (action === 'boot') {
+    suffixes = ['config', 'me', 'home'].map((a) => cacheKey('', a, {}));
+  } else if (action === 'details') {
     const ids = (payload.orderIds || []).slice(0, 15);
     if (!ids.length) return {};
     suffixes = ids.map((id) => cacheKey('', 'orderDetail', { orderId: id }));
@@ -136,7 +150,11 @@ async function fromMirror(env, action, token, payload) {
   const meta = {};
   for (const r of metaR.results || []) meta[r.k] = r.v;
   if (!meta.ver) return null;
-  if (meta.dirty && Number(meta.dirty) > Number(meta.builtFrom || 0) && Date.now() - Number(meta.dirty) < DIRTY_MS) return null;
+  if (meta.dirty && Number(meta.dirty) > Number(meta.builtFrom || 0) && Date.now() - Number(meta.dirty) < DIRTY_MS) {
+    // Save chal raha hai: sirf USI order ki detail Sheet se, baaki sab Cloudflare se (tez)
+    const ids = action === 'details' ? (payload.orderIds || []) : (action === 'orderDetail' ? [payload.orderId] : []);
+    if (!meta.dirtyOrder || ids.indexOf(meta.dirtyOrder) >= 0) return null;
+  }
 
   let who = '*';
   if (!isPublic) {
@@ -149,6 +167,11 @@ async function fromMirror(env, action, token, payload) {
   for (const r of rowsR.results || []) rows[r.k] = r.v;
   const pick = (suf) => rows[who + suf] || rows['*' + suf] || null;
 
+  if (action === 'boot') {
+    const c = pick(suffixes[0]), m = pick(suffixes[1]), h2 = pick(suffixes[2]);
+    if (!c || !m || !h2) return null;
+    return { config: JSON.parse(c), me: JSON.parse(m).staff, home: JSON.parse(h2) };
+  }
   if (action === 'details') {
     const ids = (payload.orderIds || []).slice(0, 15);
     const out = {};
@@ -218,20 +241,24 @@ async function refreshMirrorInner(env, why) {
     return;
   }
 
-  // Purana build naye ke upar na chadhe
+  await storeMirror(env, res.mirror || [], res.ver, started, false);
+}
+
+/**
+ * Copy D1 mein — sirf badli hui screen likhta hai (CRM jaisa).
+ * light = save ke baad wali halki copy: kuch delete nahi karta, aur cron ko poori copy ka ishaara deta hai.
+ */
+async function storeMirror(env, entries, verObj, started, light) {
   const now = await getMetaAll(env);
-  if (Number(now.builtFrom || 0) > started) return;
+  if (Number(now.builtFrom || 0) > started) return;   // naya build pehle hi aa chuka
 
-  const ver = res.ver.full;
-
-  // Sirf jo screen badli hai wahi likho (CRM jaisa) — baaki ko chhuo bhi mat
   const have = {};
   const cur = await env.DB.prepare('SELECT k, h FROM screens').all();
   for (const r of cur.results || []) have[r.k] = r.h;
 
   const stmts = [];
   const seen = {};
-  for (const e of res.mirror || []) {
+  for (const e of entries) {
     const k = cacheKey(e.who, e.action, e.payload);
     const v = JSON.stringify(e.data);
     // "at" (kab bana) har baar badalta hai — use chhod ke dekho asli data badla ya nahi
@@ -240,18 +267,20 @@ async function refreshMirrorInner(env, why) {
     if (have[k] === h) continue;
     stmts.push(env.DB.prepare('INSERT OR REPLACE INTO screens (k, v, h) VALUES (?, ?, ?)').bind(k, v, h));
   }
-  for (const k of Object.keys(have)) {
-    if (!seen[k]) stmts.push(env.DB.prepare('DELETE FROM screens WHERE k = ?').bind(k));
+  if (!light) {
+    for (const k of Object.keys(have)) {
+      if (!seen[k]) stmts.push(env.DB.prepare('DELETE FROM screens WHERE k = ?').bind(k));
+    }
   }
   const changed = stmts.length;
 
   stmts.push(
-    metaStmt(env, 'ver', ver),
+    metaStmt(env, 'ver', (light ? 'light|' : '') + verObj.full),   // light ke baad cron poori copy banayega (Dashboard)
     metaStmt(env, 'builtFrom', String(started)),
     metaStmt(env, 'builtAt', String(Date.now())),
-    metaStmt(env, 'info', JSON.stringify({ ms: Date.now() - started, screens: Object.keys(seen).length, changed: changed }))
+    metaStmt(env, 'info', JSON.stringify({ ms: Date.now() - started, screens: Object.keys(seen).length, changed: changed, light: light }))
   );
-  if (now.staff !== res.ver.staff) stmts.push(metaStmt(env, 'staff', res.ver.staff));
+  if (now.staff !== verObj.staff) stmts.push(metaStmt(env, 'staff', verObj.staff));
   if (now.lastError) stmts.push(metaStmt(env, 'lastError', ''));
   for (let i = 0; i < stmts.length; i += 80) await env.DB.batch(stmts.slice(i, i + 80));
 }
@@ -274,6 +303,7 @@ async function status(env) {
     banneMeLaga: info.ms ? info.ms + ' ms' : null,
     screens: info.screens || 0,
     pichliBaarBadli: info.changed,
+    halki: !!info.light,
     lastCheck: m.checkedAt ? new Date(Number(m.checkedAt)).toISOString() : null,
     error: m.lastError || ''
   };

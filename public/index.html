@@ -677,7 +677,56 @@ window.O2D = window.O2D || {};
     apiOnce(action, payload).catch(function () {});
   };
 
+  /** Jo order abhi save ho raha hai (ya abhi-abhi hua) — list mein wapas na dikhe */
+  // Sirf USI step ki list se chhupao — agle step ki list mein order turant dikhna chahiye
+  const recentDone = {};   // orderId|step → kab tak chhupana hai
+  function hiddenIds() {
+    const now = Date.now(), ids = {};
+    saving.forEach(function (j) { if (j.orderId && j.hideStep) ids[j.orderId + '|' + j.hideStep] = true; });
+    Object.keys(recentDone).forEach(function (k) { if (recentDone[k] > now) ids[k] = true; else delete recentDone[k]; });
+    return ids;
+  }
+  function hideSaving(action, d) {
+    if ((action !== 'home' && action !== 'stepList') || !d || !d.groups) return d;
+    const ids = hiddenIds();
+    if (!Object.keys(ids).length) return d;
+    const c = JSON.parse(JSON.stringify(d));
+    let gone = 0, goneRed = 0;
+    c.groups.forEach(function (g) {
+      const hid = function (x) { return ids[x.orderId + '|' + g.step]; };
+      const keep = g.items.filter(function (x) { return !hid(x); });
+      g.items.forEach(function (x) { if (hid(x)) { gone++; if (x.color === 'red') goneRed++; } });
+      g.items = keep;
+      g.count = keep.length;
+    });
+    if (!gone) return d;
+    if (typeof c.total === 'number') c.total = Math.max(0, c.total - gone);
+    if (typeof c.red === 'number') c.red = Math.max(0, c.red - goneRed);
+    (c.steps || []).forEach(function (s) {
+      const g = c.groups.filter(function (x) { return x.step === s.step; })[0];
+      if (!g) return;
+      s.count = g.items.length;
+      s.red = g.items.filter(function (x) { return x.color === 'red'; }).length;
+      s.yellow = g.items.filter(function (x) { return x.color === 'yellow'; }).length;
+      s.wait = g.items.filter(function (x) { return x.color === 'wait'; }).length;
+    });
+    return c;
+  }
+
   A.fast = function (action, payload, onData, loadingText, showLoader) {
+    // Isi order ka save abhi chal raha hai → save poora hone do, phir taaza kholo (purana form na dikhe)
+    if (action === 'orderDetail' && payload && payload.orderId) {
+      const job = saving.filter(function (j) { return j.orderId === payload.orderId; })[0];
+      if (job && job.wait) {
+        A.loading(true, 'Pichla save poora ho raha hai...');
+        return job.wait.then(function () {
+          A.loading(false);
+          return A.fast(action, payload, onData, loadingText, showLoader);
+        });
+      }
+    }
+    const show = onData;
+    onData = function (d, isOld) { show(hideSaving(action, d), isOld); };
     const key = cacheKey(action, payload);
     let old = null;
     if (showLoader !== false) {
@@ -824,6 +873,7 @@ window.O2D = window.O2D || {};
    */
   A.bgSave = function (job) {
     job.tries = 0;
+    job.wait = new Promise(function (res) { job._release = res; });
     saving.push(job);
     savingPill();
     go();
@@ -831,12 +881,14 @@ window.O2D = window.O2D || {};
       const i = saving.indexOf(job);
       if (i >= 0) saving.splice(i, 1);
       savingPill();
+      if (job._release) job._release();
     }
     function go() {
       job.tries++;
       job.run().then(function (r) {
         done();
         if (r && r.needLateReason) { if (job.onLate) job.onLate(r); return; }
+        if (job.orderId && job.hideStep) recentDone[job.orderId + '|' + job.hideStep] = Date.now() + 20000;
         A.cacheStale();
         A.toast(job.okText ? job.okText(r) : 'Save ho gaya.', 'ok');
       }, function (e) {
@@ -1997,6 +2049,7 @@ window.O2D = window.O2D || {};
       A.bgSave({
         label: label,
         orderId: d.orderId,
+        hideStep: stepKey,                 // save chalte waqt isi step ki list se chhupa rahe
         run: function () { return A.api('submitStep', { stepKey: stepKey, orderId: d.orderId, input: input }); },
         okText: function (r) { return d.orderId + ': ' + (r.complete ? 'order complete ho gaya.' : 'ho gaya. Ab: ' + r.nextLabel); },
         onLate: function (r) { r.message = label + ' — ' + (r.message || 'late hai.'); askLate(r, input, send); }
