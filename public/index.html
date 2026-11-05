@@ -1133,7 +1133,8 @@ window.O2D = window.O2D || {};
    */
   A.videoPicker = function (box, opts) {
     opts = opts || {};
-    const max = opts.max || 3, maxSec = opts.maxSeconds || 60, maxMb = opts.maxMb || 500;
+    // maxSeconds / maxMb = 0 → koi limit nahi
+    const max = opts.max || 3, maxSec = opts.maxSeconds || 0, maxMb = opts.maxMb || 0;
     const list = [];
     let running = false;
     box.classList.add('photos');
@@ -1143,12 +1144,12 @@ window.O2D = window.O2D || {};
       if (files.length > room) A.toast('Ek order mein ' + max + ' video tak. Pehli ' + room + ' le li.', 'err');
       files.slice(0, Math.max(0, room)).forEach(function (f) {
         if (!/^video\//.test(f.type || 'video/')) { A.toast('"' + f.name + '" video nahi hai.', 'err'); return; }
-        if (f.size > maxMb * 1048576) { A.toast('Video ' + maxMb + ' MB se chhoti honi chahiye (yeh ' + Math.round(f.size / 1048576) + ' MB hai).', 'err'); return; }
+        if (maxMb && f.size > maxMb * 1048576) { A.toast('Video ' + maxMb + ' MB se chhoti honi chahiye (yeh ' + Math.round(f.size / 1048576) + ' MB hai).', 'err'); return; }
         const item = { file: f, sec: 0, status: 'check', pct: 0, err: '', fileId: '' };
         list.push(item);
         videoSeconds(f).then(function (s) {
           item.sec = s;
-          if (s > maxSec + 2) {
+          if (maxSec && s > maxSec + 2) {
             list.splice(list.indexOf(item), 1);
             A.toast('Video ' + maxSec + ' second tak ki honi chahiye (yeh ' + Math.round(s) + ' second ki hai).', 'err');
           } else item.status = 'wait';
@@ -1996,7 +1997,7 @@ window.O2D = window.O2D || {};
       }
     });
     if (A.$('#vk-PACKING', box)) {
-      state.videos = A.videoPicker(A.$('#vk-PACKING', box), { orderId: d.orderId, max: 3, maxSeconds: 60, maxMb: 500 });
+      state.videos = A.videoPicker(A.$('#vk-PACKING', box), { orderId: d.orderId, max: 3 });   // video ki MB / time ki koi limit nahi
     }
     const doneAt = A.$('#in-doneAt', box);
     if (doneAt) doneAt.max = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
