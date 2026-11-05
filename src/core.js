@@ -828,6 +828,14 @@ export function editStep(M, a, p, now) {
     changes.push(f.header + ': "' + (oldT || '-') + '" → "' + (newT || '-') + '"');
     st.fields[f.key] = v;
   });
+  let photoUp = false;
+  def.fields.forEach((f) => {
+    if (f.type !== 'photos') return;
+    const list = ((p.photos || {})[f.key]) || [];
+    if (!list.length) return;
+    changes.push(f.header + ': nayi ' + list.length + ' photo lagi (purani Drive mein hai)');
+    photoUp = true;
+  });
   if (String(p.doneAt || '').trim()) {
     const pk = prevStepKey(C, stepKey);
     const minDate = pk ? stateStep(o, pk).actual : o.createdAt;
@@ -843,7 +851,8 @@ export function editStep(M, a, p, now) {
   }
   if (!changes.length) return { result: { ok: true, message: 'Kuch badla nahi.' }, nothing: true };
   const log = newLog(C, now, o, def.label, 'Step badla', a.name, a.name, now, false, '', changes.join(' · '));
-  return { order: o, logs: [log], result: { ok: true, message: def.label + ' badal gaya.' } };
+  if (photoUp) st.uploading = true;         // naya link Sheet se aate hi (kuch second) dikhega
+  return { order: o, logs: [log], result: { ok: true, message: def.label + ' badal gaya.' + (photoUp ? ' Nayi photo Drive mein ja rahi hai — link kuch second mein dikhega.' : '') } };
 }
 
 export function undoStep(M, a, p, now) {

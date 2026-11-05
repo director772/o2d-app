@@ -2562,6 +2562,7 @@ window.O2D = window.O2D || {};
              (fields.length ? '<div class="small" style="margin-top:2px">' + fields.join(' · ') + '</div>' : '') +
              (s.lateReason ? '<div class="small" style="color:var(--amber);margin-top:2px">Late: ' + A.esc(s.lateReason) + '</div>' : '') +
              (s.photos && s.photos.length ? '<div class="small" style="margin-top:2px">' + links(s.photos) + '</div>' : '') +
+             (s.uploading ? '<div class="small muted" style="margin-top:2px">Photo Drive mein ja rahi hai — link kuch second mein dikhega.</div>' : '') +
            '</div></li>';
     });
     h += '</ol></div>';
@@ -2700,9 +2701,19 @@ window.O2D = window.O2D || {};
 
   function editStep(d, s, isLast, params) {
     const fields = stepCfg(s.key).fields.filter(function (f) { return f.type !== 'photos'; });
+    const photoFields = stepCfg(s.key).fields.filter(function (f) { return f.type === 'photos'; });
+    function nowLinks() {          // har step mein ek hi photo wala khana hota hai
+      return (s.photos && s.photos.length) ? links(s.photos) : 'koi photo nahi';
+    }
     A.sheet('<h3>' + A.esc(s.label) + ' — badlo</h3>' +
       '<p class="muted small" style="margin-top:0">' + A.esc(d.orderId) + ' · ' + A.esc(d.customer) + '</p>' +
       fields.map(function (f) { return fieldHtml(f, (s.fields || {})[f.key]); }).join('') +
+      photoFields.map(function (f) {
+        return '<div class="field"><label>' + A.esc(f.header) + ' — nayi lagao</label>' +
+          '<div class="small" style="margin-bottom:6px">Abhi wali: ' + nowLinks(f) + '</div>' +
+          '<div id="ep-' + A.esc(f.key) + '"></div>' +
+          '<div class="hint">Nayi photo lagaoge toh Sheet mein purani ki jagah yeh lagegi (purani Drive mein rahegi). Nahi badalni toh khaali chhodo.</div></div>';
+      }).join('') +
       '<div class="field"><label for="e-at">Kaam kab hua</label><input class="input" type="datetime-local" id="e-at" value="' + A.esc(toLocalDT(s.actual)) + '"></div>' +
       '<div class="btn-row"><button class="btn btn-ghost" id="e-no">Rehne do</button><button class="btn btn-main" id="e-yes">Save karo</button></div>' +
       (isLast
@@ -2717,10 +2728,20 @@ window.O2D = window.O2D || {};
         : '<p class="muted small mt">Wapas kholna ho toh pehle iske baad wale steps wapas kholo.</p>'),
       function (el, close) {
         wireMulti(el);
+        const pickers = {};
+        photoFields.forEach(function (f) {
+          const box = A.$('#ep-' + f.key, el);
+          if (box) pickers[f.key] = A.photoPicker(box, {
+            label: f.key === 'BILL_PHOTO' ? 'Naye bill ki photo' : (f.key === 'BILTY_PHOTO' ? 'Nayi bilty ki photo' : 'Nayi photo'),
+            max: f.key === 'PACKING_PHOTOS' ? A.config.photo.maxPerField : 3
+          });
+        });
         A.$('#e-no', el).onclick = close;
         A.$('#e-yes', el).onclick = function () {
           const at = A.$('#e-at', el).value;
-          A.call('editStep', { orderId: d.orderId, stepKey: s.key, fields: readFields(el, fields),
+          const photos = {};
+          Object.keys(pickers).forEach(function (k) { const l = pickers[k].get(); if (l && l.length) photos[k] = l; });
+          A.call('editStep', { orderId: d.orderId, stepKey: s.key, fields: readFields(el, fields), photos: photos,
                                doneAt: at && at !== toLocalDT(s.actual) ? at : '' }, 'Badal raha hai...')
             .then(function (r) { afterSave(r, close, params); }).catch(function () {});
         };
