@@ -2658,10 +2658,13 @@ window.O2D = window.O2D || {};
       '<div class="btn-row"><button class="btn btn-ghost" id="e-no">Rehne do</button><button class="btn btn-main" id="e-yes">Save karo</button></div>' +
       (isLast
         ? '<div class="mt" style="border-top:1px solid var(--border);padding-top:12px">' +
-            '<p class="small" style="margin:0 0 8px"><b>Galti se bhar diya?</b> Step wapas kholo — phir dobara bharna padega.</p>' +
-            '<div class="field"><label for="e-why">Wapas kholne ki wajah <span class="req">*</span></label>' +
-            '<input class="input" id="e-why" placeholder="Jaise: galat bill number, galat order pe bhar diya"></div>' +
-            '<button class="btn btn-danger btn-block" id="e-undo">Step wapas kholo</button></div>'
+            '<p class="small" style="margin:0"><b>Sirf details badalni hain?</b> Upar badlo aur "Save karo" dabao — step khula nahi hoga.</p>' +
+            '<button type="button" class="btn btn-ghost btn-sm mt" id="e-undo-show" style="color:var(--red)">Galti se bhara hai? Step wapas kholo…</button>' +
+            '<div id="e-undo-box" style="display:none;margin-top:10px">' +
+              '<div class="note err" style="margin:0 0 8px">Step wapas kholne se is step ki saari details (bill no., photo ka link, time) Sheet se hat jaayengi aur step dobara bharna padega.</div>' +
+              '<div class="field"><label for="e-why">Wapas kholne ki wajah <span class="req">*</span></label>' +
+              '<input class="input" id="e-why" placeholder="Jaise: galat order pe bhar diya"></div>' +
+              '<button class="btn btn-danger btn-block" id="e-undo">Haan, step wapas kholo</button></div></div>'
         : '<p class="muted small mt">Wapas kholna ho toh pehle iske baad wale steps wapas kholo.</p>'),
       function (el, close) {
         wireMulti(el);
@@ -2672,6 +2675,8 @@ window.O2D = window.O2D || {};
                                doneAt: at && at !== toLocalDT(s.actual) ? at : '' }, 'Badal raha hai...')
             .then(function (r) { afterSave(r, close, params); }).catch(function () {});
         };
+        const show = A.$('#e-undo-show', el);
+        if (show) show.onclick = function () { show.style.display = 'none'; A.$('#e-undo-box', el).style.display = ''; };
         const undo = A.$('#e-undo', el);
         if (undo) undo.onclick = function () {
           const why = A.$('#e-why', el).value.trim();
