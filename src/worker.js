@@ -59,7 +59,7 @@ export default {
 
 /* ---------------- Video: seedha Drive tak ---------------- */
 
-const VIDEO_CHUNK = 8 * 1024 * 1024;   // 8 MB (256 KB ka guna) — kam chakkar, tez upload
+const VIDEO_CHUNK = 16 * 1024 * 1024;  // 16 MB (256 KB ka guna) — kam chakkar, tez upload
 
 async function videoChunk(request, env, url) {
   const id = url.searchParams.get('u') || '';
@@ -76,15 +76,19 @@ async function videoChunk(request, env, url) {
       resp = await fetch(row.url, { method: 'PUT', headers: { 'Content-Range': 'bytes */' + total, 'Content-Length': '0' } });
     } else {
       const offset = Number(url.searchParams.get('offset')) || 0;
-      const buf = await request.arrayBuffer();
-      if (!buf.byteLength) return json({ ok: false, error: 'Video ka tukda khaali aaya. Dobara try karo.' });
-      const end = offset + buf.byteLength - 1;
+      const len = Number(request.headers.get('Content-Length')) || 0;
+      if (!len || !request.body) return json({ ok: false, error: 'Video ka tukda khaali aaya. Dobara try karo.' });
+      const end = offset + len - 1;
       if (end >= total) return json({ ok: false, error: 'Video ka size match nahi hua. Video hata ke dobara daalo.' });
+      // Phone se aata hua tukda usi waqt Drive ko bhejte jao (pura aane ka intezaar nahi) → lagbhag aadha time
+      const { readable, writable } = new FixedLengthStream(len);
+      const pipe = request.body.pipeTo(writable);
       resp = await fetch(row.url, {
         method: 'PUT',
         headers: { 'Content-Range': 'bytes ' + offset + '-' + end + '/' + total, 'Content-Type': row.mime || 'video/mp4' },
-        body: buf
+        body: readable
       });
+      await pipe.catch(() => {});
     }
   } catch (e) {
     return json({ ok: false, error: 'Video Drive tak nahi pahunchi. Net check karo, dobara try ho raha hai.' });
@@ -130,12 +134,18 @@ async function handleApi(request, env, ctx) {
   if (ORDER_WRITES.has(action)) {
     // Save + halki copy EK hi chakkar mein → jawab aate hi Cloudflare taaza, next step turant
     await env.DB.batch([metaStmt(env, 'dirty', String(started)), metaStmt(env, 'dirtyOrder', String(payload.orderId || ''))]);
-    res = await forward(env, { mirrorKey: env.MIRROR_KEY, action: 'writeAndMirror', writeAction: action, token: token, payload: payload });
-    if (res && res.ok && res.mirror && res.ver) {
-      try { await storeMirror(env, res.mirror, res.ver, started, true); } catch (e) { /* cron bana lega */ }
-    } else if (res && res.ok) {
-      ctx.waitUntil(refreshMirror(env, 'write'));
-    }
+    // Save poora hoga hi — phone ka net chala jaaye ya app band ho jaaye tab bhi (Cloudflare khud poora karta hai)
+    const job = (async () => {
+      const r = await forward(env, { mirrorKey: env.MIRROR_KEY, action: 'writeAndMirror', writeAction: action, token: token, payload: payload });
+      if (r && r.ok && r.mirror && r.ver) {
+        try { await storeMirror(env, r.mirror, r.ver, started, true); } catch (e) { /* cron bana lega */ }
+      } else if (r && r.ok) {
+        await refreshMirror(env, 'write');
+      }
+      return r;
+    })();
+    ctx.waitUntil(job.catch(() => {}));
+    res = await job;
     if (res && typeof res === 'object') { delete res.mirror; delete res.ver; }
   } else {
     if (WRITES.has(action)) await setMeta(env, 'dirty', String(started));

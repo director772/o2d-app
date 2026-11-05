@@ -625,7 +625,9 @@ window.O2D = window.O2D || {};
   // "Taaza ho raha hai" patti: purana data screen pe hai hi, isliye patti
   // sirf tab dikhao jab server 1.5 sec se zyada le — warna chupchaap update.
   let refreshCount = 0, refreshTimer = null;
-  function refreshing(on) {
+  // Ab koi "Taaza ho raha hai" patti nahi — data chupchaap badalta hai (Cloudflare se ~0.3 sec)
+  function refreshing(on) { return; }
+  function refreshingOld(on) {
     refreshCount = Math.max(0, refreshCount + (on ? 1 : -1));
     clearTimeout(refreshTimer);
     if (refreshCount) { refreshTimer = setTimeout(showRefresh, 1500); return; }
@@ -779,7 +781,7 @@ window.O2D = window.O2D || {};
     const need = (ids || []).filter(function (id) {
       try { const c = JSON.parse(store.get(cacheKey('orderDetail', { orderId: id })) || 'null'); return !c || Date.now() - c.t > 60000; }
       catch (e) { return true; }
-    }).slice(0, 10);
+    }).slice(0, 15);
     if (!need.length) return;
     A.api('details', { orderIds: need }).then(function (map) {
       Object.keys(map || {}).forEach(function (id) { putCache('orderDetail', { orderId: id }, map[id]); });
@@ -791,7 +793,6 @@ window.O2D = window.O2D || {};
     try {
       Object.keys(localStorage).forEach(function (k) {
         if (k.indexOf(CACHE_PREFIX) !== 0) return;
-        if (k.indexOf('|orderDetail|') >= 0) { localStorage.removeItem(k); return; }
         const c = JSON.parse(localStorage.getItem(k) || 'null');
         if (c) { c.t = 0; localStorage.setItem(k, JSON.stringify(c)); }
       });
@@ -832,6 +833,8 @@ window.O2D = window.O2D || {};
         }
         localStorage.setItem(k, JSON.stringify(c));
       });
+      // Isi order ki purani detail hatao (agla step galat na dikhe) — baaki orders ki rehne do
+      localStorage.removeItem(cacheKey('orderDetail', { orderId: orderId }));
     } catch (e) {}
     A.cacheStale();
   };
@@ -1696,7 +1699,13 @@ window.O2D = window.O2D || {};
       function load(showLoader) {
         if (A.current !== 'home') { clearInterval(timer); return; }
         A.fast('home', {}, draw, 'Kaam la rahe hain...', showLoader)
-          .then(function () {
+          .then(function (d) {
+            // Home ke saare orders ki detail pehle se phone mein → order pe tap karte hi form
+            if (d && d.groups) {
+              const ids = [];
+              d.groups.forEach(function (g) { (g.items || []).forEach(function (c) { if (ids.indexOf(c.orderId) < 0) ids.push(c.orderId); }); });
+              if (ids.length) setTimeout(function () { A.prefetchDetails(ids); }, 200);
+            }
             // Director / PC: Dashboard peeche-peeche taiyar → tab dabate hi turant khule
             if (showLoader && A.staff && A.staff.isAdmin) {
               let pick = '30';
