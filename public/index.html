@@ -1133,7 +1133,7 @@ window.O2D = window.O2D || {};
    */
   A.videoPicker = function (box, opts) {
     opts = opts || {};
-    const max = opts.max || 3, maxSec = opts.maxSeconds || 60, maxMb = opts.maxMb || 200;
+    const max = opts.max || 3, maxSec = opts.maxSeconds || 60, maxMb = opts.maxMb || 500;
     const list = [];
     let running = false;
     box.classList.add('photos');
@@ -1996,7 +1996,7 @@ window.O2D = window.O2D || {};
       }
     });
     if (A.$('#vk-PACKING', box)) {
-      state.videos = A.videoPicker(A.$('#vk-PACKING', box), { orderId: d.orderId, max: 3, maxSeconds: 60, maxMb: 200 });
+      state.videos = A.videoPicker(A.$('#vk-PACKING', box), { orderId: d.orderId, max: 3, maxSeconds: 60, maxMb: 500 });
     }
     const doneAt = A.$('#in-doneAt', box);
     if (doneAt) doneAt.max = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
