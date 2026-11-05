@@ -176,8 +176,15 @@ const metaStmt = (env, k, v) => env.DB.prepare('INSERT OR REPLACE INTO meta (k, 
 async function setMeta(env, k, v) { await metaStmt(env, k, v).run(); }
 const newVer = () => Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 
+let ALERT_ROWS = [];                 // har request pe dataVer ke saath hi ek hi baar mein
+
 async function loadModel(env) {
-  const ver = await getMeta(env, 'dataVer');
+  const [vR, alR] = await env.DB.batch([
+    env.DB.prepare("SELECT v FROM meta WHERE k = 'dataVer'"),
+    env.DB.prepare('SELECT id, actor, json FROM alerts WHERE seen = 0 ORDER BY id')
+  ]);
+  ALERT_ROWS = alR.results || [];
+  const ver = ((vR.results || [])[0] || {}).v || null;
   if (!ver) return null;
   if (MEM && MEM.ver === ver) return MEM.M;
   const [cfgR, logR, ordR, plR] = await env.DB.batch([
@@ -202,11 +209,10 @@ async function loadModel(env) {
 async function saveWrite(env, M, a, action, token, payload, out) {
   const o = out.order;
   const now = Date.now();
-  const job = await env.DB.prepare('INSERT INTO jobs (created, actor, action, token, order_id, want_id, label, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id')
-    .bind(now, a.name, action, token, o.orderId, out.isNew ? o.orderId : '', WRITE_LABEL[action] || action, 'wait').first();
-  const jobId = job.id;
+  const jobId = now * 1000 + Math.floor(Math.random() * 1000);   // ek hi D1 call mein sab (tez save)
   const pl = JSON.stringify(Object.assign({}, payload, out.isNew ? { createdAt: o.createdAt } : {}));
-  const stmts = [];
+  const stmts = [env.DB.prepare('INSERT INTO jobs (id, created, actor, action, token, order_id, want_id, label, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(jobId, now, a.name, action, token, o.orderId, out.isNew ? o.orderId : '', WRITE_LABEL[action] || action, 'wait')];
   for (let i = 0, n = 0; i < pl.length; i += PART, n++) stmts.push(env.DB.prepare('INSERT INTO job_parts (job_id, part, data) VALUES (?, ?, ?)').bind(jobId, n, pl.slice(i, i + PART)));
   stmts.push(env.DB.prepare('INSERT OR REPLACE INTO orders (id, json, h, pending_job) VALUES (?, ?, ?, ?)').bind(o.orderId, JSON.stringify(o), '', jobId));
   (out.logs || []).forEach((l) => stmts.push(env.DB.prepare('INSERT INTO plogs (job_id, json) VALUES (?, ?)').bind(jobId, JSON.stringify(l))));
@@ -271,8 +277,7 @@ async function finishJob(env, job, ok, err, state) {
 }
 
 async function takeAlerts(env, actor) {
-  const r = await env.DB.prepare('SELECT id, json FROM alerts WHERE actor = ? AND seen = 0 ORDER BY id').bind(actor).all();
-  const rows = r.results || [];
+  const rows = ALERT_ROWS.filter((x) => x.actor === actor);
   if (!rows.length) return [];
   await env.DB.prepare('UPDATE alerts SET seen = 1 WHERE actor = ? AND seen = 0').bind(actor).run();
   return rows.map((x) => JSON.parse(x.json));
