@@ -1174,17 +1174,35 @@ window.O2D = window.O2D || {};
         .then(function (r) {
           item.uploadId = r.uploadId;
           const size = r.chunkBytes;
+          // Tez raasta: video ka tukda seedha (bina badle) Cloudflare → Drive
+          function sendDirect(offset, end) {
+            return fetch('/api/video-chunk?u=' + encodeURIComponent(item.uploadId) + '&offset=' + offset + '&total=' + f.size, {
+              method: 'POST', headers: { 'X-O2D-Token': A.token() }, body: f.slice(offset, end)
+            }).then(function (res) { return res.json(); }).then(function (j) {
+              if (!j || !j.ok) throw new Error((j && j.error) || 'Video ka tukda nahi gaya.');
+              return j.data;
+            }, function () { throw new Error('Internet ruk gaya — video dobara try ho rahi hai.'); });
+          }
           function sendFrom(offset, tries) {
             if (list.indexOf(item) < 0) return Promise.resolve();          // beech mein hata di
             const end = Math.min(offset + size, f.size);
-            return readChunk(f, offset, end)
-              .then(function (b64) { return A.api('videoChunk', { uploadId: item.uploadId, offset: offset, data: b64 }); })
+            return (r.direct ? sendDirect(offset, end) : readChunk(f, offset, end)
+              .then(function (b64) { return A.api('videoChunk', { uploadId: item.uploadId, offset: offset, data: b64 }); }))
               .then(function (res) {
                 if (res.done) { item.fileId = res.fileId; item.status = 'done'; item.pct = 100; draw(); return; }
                 item.pct = Math.min(99, Math.round((res.next / f.size) * 100)); draw();
                 return sendFrom(res.next, 0);
               }, function (e) {
-                if (tries < 2) return new Promise(function (ok) { setTimeout(ok, 2000); }).then(function () { return sendFrom(offset, tries + 1); });
+                if (tries < 4) return new Promise(function (ok) { setTimeout(ok, 2000 * (tries + 1)); }).then(function () {
+                  // Tez raaste pe: pehle poochho Drive tak kitna pahunch gaya, wahin se aage
+                  if (!r.direct) return sendFrom(offset, tries + 1);
+                  return fetch('/api/video-chunk?u=' + encodeURIComponent(item.uploadId) + '&status=1&total=' + f.size, {
+                    method: 'POST', headers: { 'X-O2D-Token': A.token() }
+                  }).then(function (x) { return x.json(); }).then(function (j) {
+                    if (j && j.ok && j.data && j.data.done) { item.fileId = j.data.fileId; item.status = 'done'; item.pct = 100; draw(); return; }
+                    return sendFrom(j && j.ok && j.data ? j.data.next : offset, tries + 1);
+                  }, function () { return sendFrom(offset, tries + 1); });
+                });
                 throw e;
               });
           }

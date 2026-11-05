@@ -25,7 +25,8 @@ async function ensureTables(env) {
     env.DB.prepare('DROP TABLE IF EXISTS cache'),
     env.DB.prepare('CREATE TABLE IF NOT EXISTS screens (k TEXT PRIMARY KEY, v TEXT, h TEXT)'),
     env.DB.prepare('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)'),
-    env.DB.prepare('CREATE TABLE IF NOT EXISTS tokens (h TEXT PRIMARY KEY, name TEXT, staff TEXT, at INTEGER)')
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS tokens (h TEXT PRIMARY KEY, name TEXT, staff TEXT, at INTEGER)'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, url TEXT, size INTEGER, mime TEXT, th TEXT, at INTEGER)')
   ]);
   tablesReady = true;
 }
@@ -39,6 +40,7 @@ export default {
       return handleApi(request, env, ctx);
     }
     if (url.pathname === '/api/status') return json(await status(env));
+    if (url.pathname === '/api/video-chunk' && request.method === 'POST') return videoChunk(request, env, url);
     if (url.pathname === '/api/refresh') {
       // Copy turant taaza (30 sec mein ek hi baar)
       const m = await getMetaAll(env);
@@ -54,6 +56,53 @@ export default {
     await refreshMirror(env, 'cron');
   }
 };
+
+/* ---------------- Video: seedha Drive tak ---------------- */
+
+const VIDEO_CHUNK = 8 * 1024 * 1024;   // 8 MB (256 KB ka guna) — kam chakkar, tez upload
+
+async function videoChunk(request, env, url) {
+  const id = url.searchParams.get('u') || '';
+  const token = request.headers.get('X-O2D-Token') || '';
+  if (!tokenAlive(token)) return json({ ok: false, error: 'Login khatam ho gaya. Dobara login karo.', relogin: true });
+  const row = await env.DB.prepare('SELECT url, size, mime, th FROM uploads WHERE id = ?').bind(id).first();
+  if (!row || row.th !== await sha(token)) return json({ ok: false, error: 'Video upload ka samay khatam ho gaya. Video hata ke dobara daalo.' });
+  const total = Number(row.size);
+
+  let resp;
+  try {
+    if (url.searchParams.get('status')) {
+      // Drive tak kitna pahunch chuka?
+      resp = await fetch(row.url, { method: 'PUT', headers: { 'Content-Range': 'bytes */' + total, 'Content-Length': '0' } });
+    } else {
+      const offset = Number(url.searchParams.get('offset')) || 0;
+      const buf = await request.arrayBuffer();
+      if (!buf.byteLength) return json({ ok: false, error: 'Video ka tukda khaali aaya. Dobara try karo.' });
+      const end = offset + buf.byteLength - 1;
+      if (end >= total) return json({ ok: false, error: 'Video ka size match nahi hua. Video hata ke dobara daalo.' });
+      resp = await fetch(row.url, {
+        method: 'PUT',
+        headers: { 'Content-Range': 'bytes ' + offset + '-' + end + '/' + total, 'Content-Type': row.mime || 'video/mp4' },
+        body: buf
+      });
+    }
+  } catch (e) {
+    return json({ ok: false, error: 'Video Drive tak nahi pahunchi. Net check karo, dobara try ho raha hai.' });
+  }
+
+  if (resp.status === 308) {
+    const m = String(resp.headers.get('Range') || '').match(/-(\d+)$/);
+    return json({ ok: true, data: { done: false, next: m ? Number(m[1]) + 1 : 0 } });
+  }
+  if (resp.status === 200 || resp.status === 201) {
+    let file = {};
+    try { file = await resp.json(); } catch (e) {}
+    await env.DB.prepare('DELETE FROM uploads WHERE id = ?').bind(id).run();
+    if (!file.id) return json({ ok: false, error: 'Video Drive mein gayi par link nahi mila. Dobara try karo.' });
+    return json({ ok: true, data: { done: true, fileId: file.id, url: 'https://drive.google.com/file/d/' + file.id + '/view#video' } });
+  }
+  return json({ ok: false, error: 'Video ka tukda Drive tak nahi gaya (' + resp.status + '). Dobara try karo.' });
+}
 
 /* ---------------- API ---------------- */
 
@@ -92,6 +141,15 @@ async function handleApi(request, env, ctx) {
     if (WRITES.has(action)) await setMeta(env, 'dirty', String(started));
     res = await forward(env, body);
     if (WRITES.has(action) && res && res.ok) ctx.waitUntil(refreshMirror(env, 'write'));
+    // Video: Drive ka upload link Cloudflare apne paas rakhe → tukde seedha Cloudflare se Drive (tez)
+    if (action === 'videoStart' && res && res.ok && res.data && res.data.sessionUrl) {
+      await env.DB.prepare('INSERT OR REPLACE INTO uploads (id, url, size, mime, th, at) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(res.data.uploadId, res.data.sessionUrl, Number(payload.size) || 0, String(payload.mimeType || 'video/mp4'), await sha(token), Date.now()).run();
+      delete res.data.sessionUrl;
+      res.data.direct = true;
+      res.data.chunkBytes = VIDEO_CHUNK;
+      ctx.waitUntil(env.DB.prepare('DELETE FROM uploads WHERE at < ?').bind(Date.now() - 7 * 86400000).run().catch(() => {}));
+    }
   }
   ctx.waitUntil(learnToken(env, action, token, res).catch(() => {}));
 
