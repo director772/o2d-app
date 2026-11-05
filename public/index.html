@@ -1452,7 +1452,7 @@ window.O2D = window.O2D || {};
         A.bootLoading = false;
         A.loading(false);
         const first = !cached || !cached.me;
-        const changed = !first && (cached.me.name !== d.me.name || cached.me.isAdmin !== d.me.isAdmin ||
+        const changed = !first && (cached.me.name !== d.me.name || cached.me.isAdmin !== d.me.isAdmin || cached.me.canEdit !== d.me.canEdit ||
           JSON.stringify(cached.me.steps) !== JSON.stringify(d.me.steps));
         applyBoot(d);
         d.t = Date.now();
@@ -2527,7 +2527,7 @@ window.O2D = window.O2D || {};
       ['Item', A.esc(d.item)], ['Customer Type', A.esc(d.customerType)], ['Order Type', A.esc(d.orderType)],
       ['Payment', A.esc(d.payment)], ['Salesperson', A.esc(d.salesperson)], ['Parchi', links(d.orderPhotos)]
     ].filter(function (x) { return x[1]; });
-    const canEdit = A.staff && A.staff.isAdmin && !d.cancelled;
+    const canEdit = A.staff && (A.staff.isDirector || A.staff.canEdit) && !d.cancelled;
     h += '<div class="panel"><div class="panel-head row between"><h3>Order ki jaankari</h3>' +
          (canEdit ? '<button class="btn btn-ghost btn-sm" id="od-edit">Order badlo</button>' : '') + '</div><ul class="list-plain">' +
          det.map(function (x) { return '<li class="row between" style="align-items:flex-start"><span class="muted">' + x[0] + '</span><span style="text-align:right;font-weight:500">' + x[1] + '</span></li>'; }).join('') +
@@ -3002,6 +3002,7 @@ window.O2D = window.O2D || {};
                 '<div class="muted small">' + A.esc(s.role) + (s.phone ? ' · ' + A.esc(s.phone) : '') + '</div></div>' +
               '<div class="row" style="gap:6px;flex-wrap:wrap;justify-content:flex-end">' +
                 (s.active ? '<span class="pill green">Active</span>' : '<span class="pill">Band</span>') +
+                (s.canEdit ? '<span class="pill">Badlo access</span>' : '') +
                 (s.pinSet ? '<span class="pill done">PIN set</span>' : '<span class="pill yellow">PIN nahi</span>') +
               '</div>' +
             '</div>' +
@@ -3030,7 +3031,7 @@ window.O2D = window.O2D || {};
       /* ---- Naya / badlo ---- */
       function edit(s) {
         const isNew = !s;
-        s = s || { name: '', role: 'Staff', phone: '', steps: [], active: true, note: '' };
+        s = s || { name: '', role: 'Staff', phone: '', steps: [], active: true, canEdit: false, note: '' };
         const steps = (A.config.steps || []);
         A.sheet(
           '<h3>' + (isNew ? 'Naya staff' : A.esc(s.name)) + '</h3>' +
@@ -3045,11 +3046,13 @@ window.O2D = window.O2D || {};
           '<div class="field"><label>Phone</label><input class="input" id="e-phone" type="tel" inputmode="numeric" value="' + A.esc(s.phone) + '" placeholder="10 ank (WhatsApp ke liye)"></div>' +
           '<div class="field"><label>Note</label><input class="input" id="e-note" value="' + A.esc(s.note || '') + '"></div>' +
           '<div class="field"><label class="row" style="gap:10px;cursor:pointer"><input type="checkbox" id="e-active" style="width:20px;height:20px"' + (s.active ? ' checked' : '') + '> Active (link chalu)</label></div>' +
+          '<div class="field" id="e-edit-f"><label class="row" style="gap:10px;cursor:pointer"><input type="checkbox" id="e-edit" style="width:20px;height:20px"' + (s.canEdit ? ' checked' : '') + '> Badlo access (order / step badal sake, galti se bhara step wapas khol sake)</label>' +
+          '<div class="hint">Director ke paas yeh hamesha hota hai.</div></div>' +
           '<button class="btn btn-main btn-block" id="e-save">Save karo</button>',
           function (el, close) {
             let role = s.role;
             const picked = s.steps.slice();
-            function syncRole() { A.$('#e-steps-f', el).classList.toggle('hide', role !== 'Staff'); }
+            function syncRole() { A.$('#e-steps-f', el).classList.toggle('hide', role !== 'Staff'); A.$('#e-edit-f', el).classList.toggle('hide', role === 'Director'); }
             A.$$('#e-role .choice', el).forEach(function (b) {
               b.onclick = function () { role = b.getAttribute('data-v'); A.$$('#e-role .choice', el).forEach(function (x) { x.classList.toggle('on', x === b); }); syncRole(); };
             });
@@ -3067,7 +3070,8 @@ window.O2D = window.O2D || {};
                 name: isNew ? A.$('#e-name', el).value : s.name,
                 role: role, steps: role === 'Staff' ? picked : [],
                 phone: A.$('#e-phone', el).value, note: A.$('#e-note', el).value,
-                active: A.$('#e-active', el).checked
+                active: A.$('#e-active', el).checked,
+                canEdit: role === 'Director' || A.$('#e-edit', el).checked
               }, 'Save ho raha hai...')
                 .then(function () { close(); A.toast('Save ho gaya.', 'ok'); load(); })
                 .catch(function () {});

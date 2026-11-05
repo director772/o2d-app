@@ -292,7 +292,7 @@ export function stepList(M, a, step, now) {
 }
 
 export function meFor(C, a) {
-  return { name: a.name, role: a.role, steps: a.steps, stepLabels: (a.steps || []).map((k) => stepDef(C, k).label), isAdmin: !!a.isAdmin, isDirector: !!a.isDirector };
+  return { name: a.name, role: a.role, steps: a.steps, stepLabels: (a.steps || []).map((k) => stepDef(C, k).label), isAdmin: !!a.isAdmin, isDirector: !!a.isDirector, canEdit: !!(a.isDirector || a.canEdit) };
 }
 
 export function uiConfig(C, a, now) {
@@ -790,7 +790,7 @@ const valText = (v) => (v && v.d ? fmtDate(v.d) : shown(v));
 
 export function editOrder(M, a, p, now) {
   const C = M.C;
-  if (!a.isAdmin) fail('Yeh hissa sirf Director / PC ke liye hai.');
+  if (!(a.isDirector || a.canEdit)) fail('Aapko badalne ka access nahi hai. Director se maango.');
   const o = findOrder(M, p.orderId);
   const def = stepDef(C, 'ORDER_ENTRY');
   const map = { CUSTOMER_NAME: 'customerName', PHONE: 'phone', CITY: 'city', ITEM: 'item', CUSTOMER_TYPE: 'customerType', ORDER_TYPE: 'orderType', PAYMENT: 'payment' };
@@ -811,7 +811,7 @@ export function editOrder(M, a, p, now) {
 
 export function editStep(M, a, p, now) {
   const C = M.C;
-  if (!a.isAdmin) fail('Yeh hissa sirf Director / PC ke liye hai.');
+  if (!(a.isDirector || a.canEdit)) fail('Aapko badalne ka access nahi hai. Director se maango.');
   const stepKey = String(p.stepKey || '');
   const def = stepDef(C, stepKey);
   if (def.kind === 'entry') fail('Order ki jaankari "Order badlo" se badlo.');
@@ -848,7 +848,7 @@ export function editStep(M, a, p, now) {
 
 export function undoStep(M, a, p, now) {
   const C = M.C;
-  if (!a.isAdmin) fail('Yeh hissa sirf Director / PC ke liye hai.');
+  if (!(a.isDirector || a.canEdit)) fail('Aapko badalne ka access nahi hai. Director se maango.');
   const stepKey = String(p.stepKey || '');
   const def = stepDef(C, stepKey);
   if (def.kind === 'entry') fail('Naya Order wapas nahi khul sakta — zaroorat ho toh order cancel karo.');
@@ -901,5 +901,5 @@ export async function actorFromToken(C, token) {
   const s = C.staff.find((x) => x.name === parts[0]);
   if (!s || s.linkCode !== parts[1]) { const e = new AppError('Aapka login band kiya gaya hai. Dobara naam chun ke PIN daalo.'); e.relogin = true; throw e; }
   if (!s.active) { const e = new AppError(s.name + ' ka access band hai. Director se baat karo.'); e.relogin = true; throw e; }
-  return { name: s.name, role: s.role, steps: s.steps, isAdmin: s.isAdmin, isDirector: s.role === 'Director' };
+  return { name: s.name, role: s.role, steps: s.steps, isAdmin: s.isAdmin, isDirector: s.role === 'Director', canEdit: s.role === 'Director' || !!s.canEdit };
 }
