@@ -11,9 +11,9 @@
 // Ye screens copy se khulti hain
 const READS = new Set(['boot', 'me', 'home', 'stepList', 'orders', 'orderDetail', 'details', 'dashboard', 'loginInfo', 'loginNames']);
 // Ye kaam data badalte hain → copy dobara banao
-const WRITES = new Set(['createOrder', 'addOrderPhotos', 'submitStep', 'billIssue', 'cancelOrder', 'saveStaff', 'setPin', 'newLink', 'changePin']);
+const WRITES = new Set(['createOrder', 'addOrderPhotos', 'submitStep', 'billIssue', 'cancelOrder', 'editOrder', 'editStep', 'undoStep', 'saveStaff', 'setPin', 'newLink', 'changePin']);
 // Order ke kaam: save ke saath hi halki copy
-const ORDER_WRITES = new Set(['createOrder', 'addOrderPhotos', 'submitStep', 'billIssue', 'cancelOrder']);
+const ORDER_WRITES = new Set(['createOrder', 'addOrderPhotos', 'submitStep', 'billIssue', 'cancelOrder', 'editOrder', 'editStep', 'undoStep']);
 const PUBLIC_READS = new Set(['loginInfo', 'loginNames']);
 const DIRTY_MS = 120000;     // save ke baad itni der tak (ya copy banne tak) seedha Sheet se
 

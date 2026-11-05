@@ -2429,6 +2429,9 @@ window.O2D = window.O2D || {};
    - Activity Log (galti mili, cancel wagairah sab)
    - Button: "Yeh step bharo" (agar aapka step hai)
    - Director: "Order cancel karo" (reason ke saath)
+   - Director / PC: "Order badlo" (customer, item, payment...),
+     har bhare step pe "Badlo" (details + kaam kab hua),
+     aakhri bhare step ko "Wapas kholo" (galti se bhara ho toh)
   ============================================================
 -->
 <script>
@@ -2475,12 +2478,15 @@ window.O2D = window.O2D || {};
       ['Item', A.esc(d.item)], ['Customer Type', A.esc(d.customerType)], ['Order Type', A.esc(d.orderType)],
       ['Payment', A.esc(d.payment)], ['Salesperson', A.esc(d.salesperson)], ['Parchi', links(d.orderPhotos)]
     ].filter(function (x) { return x[1]; });
-    h += '<div class="panel"><div class="panel-head"><h3>Order ki jaankari</h3></div><ul class="list-plain">' +
+    const canEdit = A.staff && A.staff.isAdmin && !d.cancelled;
+    h += '<div class="panel"><div class="panel-head row between"><h3>Order ki jaankari</h3>' +
+         (canEdit ? '<button class="btn btn-ghost btn-sm" id="od-edit">Order badlo</button>' : '') + '</div><ul class="list-plain">' +
          det.map(function (x) { return '<li class="row between" style="align-items:flex-start"><span class="muted">' + x[0] + '</span><span style="text-align:right;font-weight:500">' + x[1] + '</span></li>'; }).join('') +
          '</ul></div>';
 
     // Timeline
     h += '<div class="panel"><div class="panel-head"><h3>Steps</h3></div><ol class="list-plain">';
+    const lastDone = (function () { let k = null; d.steps.forEach(function (x) { if (x.done && x.key !== 'ORDER_ENTRY') k = x.key; }); return k; })();
     d.steps.forEach(function (s) {
       const dot = s.done ? (s.late ? 'var(--amber)' : 'var(--green)') : (s.isCurrent && !d.cancelled ? 'var(--brand)' : 'var(--border-strong)');
       const fields = Object.keys(s.fields || {}).filter(function (k) { return s.fields[k]; })
@@ -2498,8 +2504,11 @@ window.O2D = window.O2D || {};
       h += '<li style="display:flex;gap:12px;align-items:flex-start">' +
            '<span style="width:12px;height:12px;border-radius:50%;margin-top:5px;flex:none;background:' + dot + '"></span>' +
            '<div style="min-width:0;flex:1">' +
-             '<div class="row between"><b style="font-weight:600">' + A.esc(s.label) + '</b>' +
-               (s.done && s.late ? '<span class="pill yellow">Late</span>' : '') + '</div>' +
+             '<div class="row between" style="gap:8px"><b style="font-weight:600">' + A.esc(s.label) + '</b>' +
+               '<span class="row" style="gap:6px">' +
+               (s.done && s.late ? '<span class="pill yellow">Late</span>' : '') +
+               (canEdit && s.done && s.key !== 'ORDER_ENTRY' ? '<button class="btn btn-ghost btn-sm" data-edit-step="' + A.esc(s.key) + '">Badlo</button>' : '') +
+               '</span></div>' +
              '<div class="muted small">' + sub + '</div>' +
              (fields.length ? '<div class="small" style="margin-top:2px">' + fields.join(' · ') + '</div>' : '') +
              (s.lateReason ? '<div class="small" style="color:var(--amber);margin-top:2px">Late: ' + A.esc(s.lateReason) + '</div>' : '') +
@@ -2509,7 +2518,9 @@ window.O2D = window.O2D || {};
     h += '</ol></div>';
 
     // Activity log
-    const extra = (d.history || []).filter(function (x) { return x.kaam === 'Galti mili' || x.kaam === 'Order Cancel' || x.kaam === 'Parchi photo jodi'; });
+    const extra = (d.history || []).filter(function (x) {
+      return ['Galti mili', 'Order Cancel', 'Parchi photo jodi', 'Order badla', 'Step badla', 'Step wapas khola'].indexOf(x.kaam) >= 0;
+    });
     if (extra.length) {
       h += '<div class="panel"><div class="panel-head"><h3>Aur jaankari</h3></div><ul class="list-plain">' +
            extra.map(function (x) {
@@ -2524,6 +2535,14 @@ window.O2D = window.O2D || {};
 
     view.innerHTML = h;
     A.$('#od-back', view).onclick = function () { A.go(back); };
+    const ed = A.$('#od-edit', view);
+    if (ed) ed.onclick = function () { editOrder(d, params); };
+    A.$$('[data-edit-step]', view).forEach(function (b) {
+      b.onclick = function () {
+        const s = d.steps.filter(function (x) { return x.key === b.getAttribute('data-edit-step'); })[0];
+        editStep(d, s, s.key === lastDone, params);
+      };
+    });
     const act = A.$('#od-act', view);
     if (act) act.onclick = function () { A.lastStep = d.currentStep; A.go('step', { orderId: d.orderId, stepKey: d.currentStep }); };
     const cancel = A.$('#od-cancel', view);
@@ -2542,6 +2561,125 @@ window.O2D = window.O2D || {};
           };
         });
     };
+  }
+
+  /* ---------------- Badlav (Director / PC) ---------------- */
+
+  function stepCfg(key) {
+    return ((A.config && A.config.steps) || []).filter(function (x) { return x.key === key; })[0] || { fields: [] };
+  }
+
+  // Ek field ka input (photo nahi — photo Drive mein waise hi rehti hai)
+  function fieldHtml(f, val) {
+    const id = 'e-' + f.key;
+    const label = '<label for="' + id + '">' + A.esc(f.header) + (f.required ? ' <span class="req">*</span>' : '') + '</label>';
+    if (f.type === 'select') {
+      return '<div class="field">' + label + '<select class="select" id="' + id + '">' +
+        (f.required ? '' : '<option value="">—</option>') +
+        f.options.map(function (o) { return '<option' + (o === val ? ' selected' : '') + '>' + A.esc(o) + '</option>'; }).join('') +
+        '</select></div>';
+    }
+    if (f.type === 'multiselect') {
+      const on = String(val || '').split(',').map(function (x) { return x.trim(); });
+      return '<div class="field"><label>' + A.esc(f.header) + (f.required ? ' <span class="req">*</span>' : '') + '</label>' +
+        '<div class="choices" data-multi="' + f.key + '" style="flex-wrap:wrap">' +
+        f.options.map(function (o) { return '<button type="button" class="choice' + (on.indexOf(o) >= 0 ? ' on' : '') + '" data-v="' + A.esc(o) + '">' + A.esc(o) + '</button>'; }).join('') +
+        '</div></div>';
+    }
+    if (f.type === 'date') {
+      return '<div class="field">' + label + '<input class="input" type="date" id="' + id + '" value="' + A.esc(toYmd(val)) + '"></div>';
+    }
+    return '<div class="field">' + label + '<input class="input" id="' + id + '" ' + (f.type === 'phone' ? 'inputmode="tel" ' : '') +
+      'value="' + A.esc(val || '') + '"></div>';
+  }
+
+  function readFields(el, fields) {
+    const out = {};
+    fields.forEach(function (f) {
+      if (f.type === 'multiselect') {
+        out[f.key] = A.$$('[data-multi="' + f.key + '"] .choice.on', el).map(function (b) { return b.getAttribute('data-v'); });
+      } else {
+        const inp = A.$('#e-' + f.key, el);
+        if (inp) out[f.key] = inp.value;
+      }
+    });
+    return out;
+  }
+
+  function wireMulti(el) {
+    A.$$('[data-multi] .choice', el).forEach(function (b) { b.onclick = function () { b.classList.toggle('on'); }; });
+  }
+
+  // "04/11/2026" ya "04/11/2026 05:01 PM" → "2026-11-04"
+  function toYmd(txt) {
+    const m = String(txt || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
+  }
+  // "04/11/2026 05:01 PM" → "2026-11-04T17:01"
+  function toLocalDT(txt) {
+    const m = String(txt || '').match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?/i);
+    if (!m) return '';
+    let hh = +m[4];
+    if (m[6]) { const pm = m[6].toUpperCase() === 'PM'; if (pm && hh < 12) hh += 12; if (!pm && hh === 12) hh = 0; }
+    return m[3] + '-' + m[2] + '-' + m[1] + 'T' + ('0' + hh).slice(-2) + ':' + m[5];
+  }
+
+  function afterSave(r, close, params) {
+    close();
+    A.cacheStale();
+    A.toast((r && r.message) || 'Badal gaya.', 'ok');
+    A.go('orderDetail', params);
+  }
+
+  function editOrder(d, params) {
+    const fields = stepCfg('ORDER_ENTRY').fields.filter(function (f) { return f.type !== 'photos'; });
+    const cur = { CUSTOMER_NAME: d.customer, PHONE: d.phone, CITY: d.city, ITEM: d.item,
+                  CUSTOMER_TYPE: d.customerType, ORDER_TYPE: d.orderType, PAYMENT: d.payment };
+    A.sheet('<h3>' + A.esc(d.orderId) + ' — order badlo</h3>' +
+      fields.map(function (f) { return fieldHtml(f, cur[f.key]); }).join('') +
+      '<p class="muted small">Badlav Activity Log mein likha jaayega (kisne, kya se kya).</p>' +
+      '<div class="btn-row"><button class="btn btn-ghost" id="e-no">Rehne do</button><button class="btn btn-main" id="e-yes">Save karo</button></div>',
+      function (el, close) {
+        wireMulti(el);
+        A.$('#e-no', el).onclick = close;
+        A.$('#e-yes', el).onclick = function () {
+          A.call('editOrder', { orderId: d.orderId, fields: readFields(el, fields) }, 'Badal raha hai...')
+            .then(function (r) { afterSave(r, close, params); }).catch(function () {});
+        };
+      });
+  }
+
+  function editStep(d, s, isLast, params) {
+    const fields = stepCfg(s.key).fields.filter(function (f) { return f.type !== 'photos'; });
+    A.sheet('<h3>' + A.esc(s.label) + ' — badlo</h3>' +
+      '<p class="muted small" style="margin-top:0">' + A.esc(d.orderId) + ' · ' + A.esc(d.customer) + '</p>' +
+      fields.map(function (f) { return fieldHtml(f, (s.fields || {})[f.key]); }).join('') +
+      '<div class="field"><label for="e-at">Kaam kab hua</label><input class="input" type="datetime-local" id="e-at" value="' + A.esc(toLocalDT(s.actual)) + '"></div>' +
+      '<div class="btn-row"><button class="btn btn-ghost" id="e-no">Rehne do</button><button class="btn btn-main" id="e-yes">Save karo</button></div>' +
+      (isLast
+        ? '<div class="mt" style="border-top:1px solid var(--border);padding-top:12px">' +
+            '<p class="small" style="margin:0 0 8px"><b>Galti se bhar diya?</b> Step wapas kholo — phir dobara bharna padega.</p>' +
+            '<div class="field"><label for="e-why">Wapas kholne ki wajah <span class="req">*</span></label>' +
+            '<input class="input" id="e-why" placeholder="Jaise: galat bill number, galat order pe bhar diya"></div>' +
+            '<button class="btn btn-danger btn-block" id="e-undo">Step wapas kholo</button></div>'
+        : '<p class="muted small mt">Wapas kholna ho toh pehle iske baad wale steps wapas kholo.</p>'),
+      function (el, close) {
+        wireMulti(el);
+        A.$('#e-no', el).onclick = close;
+        A.$('#e-yes', el).onclick = function () {
+          const at = A.$('#e-at', el).value;
+          A.call('editStep', { orderId: d.orderId, stepKey: s.key, fields: readFields(el, fields),
+                               doneAt: at && at !== toLocalDT(s.actual) ? at : '' }, 'Badal raha hai...')
+            .then(function (r) { afterSave(r, close, params); }).catch(function () {});
+        };
+        const undo = A.$('#e-undo', el);
+        if (undo) undo.onclick = function () {
+          const why = A.$('#e-why', el).value.trim();
+          if (!why) { A.toast('Wajah likho.', 'err'); return; }
+          A.call('undoStep', { orderId: d.orderId, stepKey: s.key, reason: why }, 'Wapas khul raha hai...')
+            .then(function (r) { afterSave(r, close, params); }).catch(function () {});
+        };
+      });
   }
 
 })(window.O2D);
@@ -2666,6 +2804,17 @@ window.O2D = window.O2D || {};
           kpi('Aaj dispatch', s.todayDispatch, 'green') +
           '</div>';
 
+        // ---- Sheet aur app mein farak (app ne save kiya, Sheet mein step khaali) ----
+        if (d.mismatch && d.mismatch.length) {
+          h += '<div class="panel" style="border-color:var(--red)"><div class="panel-head"><h3 style="color:var(--red)">Sheet mein kaam gayab</h3><span class="count">' + d.mismatch.length + '</span></div>' +
+            '<p class="small" style="margin-top:0">Yeh step app se save hua tha (Activity Log mein hai), par FMS Sheet mein khaali hai. Order kholo aur step dobara bharo — ya Sheet mein Actual / Status check karo.</p>' +
+            '<ul class="list-plain">' + d.mismatch.map(function (m) {
+              return '<li class="row between" data-open="' + A.esc(m.orderId) + '" style="cursor:pointer;gap:8px">' +
+                '<span><b style="font-weight:600">' + A.esc(m.orderId) + '</b> · ' + A.esc(m.customer) + '<br><span class="small">' + A.esc(m.step) + ' — ' + A.esc(m.doneBy) + ', ' + A.esc(m.time) + '</span></span>' +
+                '<span class="btn btn-ghost btn-sm">Kholo</span></li>';
+            }).join('') + '</ul></div>';
+        }
+
         // ---- Step board ----
         const maxT = Math.max.apply(null, d.steps.map(function (x) { return x.total; }).concat([1]));
         h += '<div class="panel"><div class="panel-head"><h3>Kaun sa step kahan atka hai</h3></div>' +
@@ -2737,6 +2886,9 @@ window.O2D = window.O2D || {};
         A.$('#db-body', view).innerHTML = h;
         A.$$('#db-red .slip', view).forEach(function (b) {
           b.onclick = function () { A.go('orderDetail', { orderId: b.getAttribute('data-oid'), back: 'dashboard' }); };
+        });
+        A.$$('[data-open]', view).forEach(function (b) {
+          b.onclick = function () { A.go('orderDetail', { orderId: b.getAttribute('data-open'), back: 'dashboard' }); };
         });
       }
 
