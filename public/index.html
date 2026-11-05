@@ -574,10 +574,31 @@ window.O2D = window.O2D || {};
 
   /* ---------------- SERVER SE BAAT (ek hi raasta) ---------------- */
 
+  /** Koi save Sheet ne mana kiya (jaise bill number pehle se laga) → saaf batao */
+  function showAlerts(list) {
+    try { A.cacheStale(); } catch (e) {}
+    const rows = list.map(function (a) {
+      return '<div class="note err" style="margin-bottom:8px"><b>' + A.esc(a.label || 'Save') + '</b>' +
+        (a.orderId ? ' · ' + A.esc(a.orderId) : '') + (a.time ? ' · ' + A.esc(a.time) : '') +
+        '<div>' + A.esc(a.error || 'Sheet mein save nahi hua') + '</div>' +
+        (a.orderId ? '<button class="btn btn-ghost btn-sm" data-oid="' + A.esc(a.orderId) + '" style="margin-top:6px">Order kholo</button>' : '') +
+        '</div>';
+    }).join('');
+    A.sheet('<h3>Yeh save Sheet mein nahi hua</h3><p class="muted">Order pehle jaisa wapas ho gaya hai. Theek karke dobara bharo.</p>' + rows +
+      '<div class="btn-row"><button class="btn btn-main" id="al-ok">Theek hai</button></div>',
+      function (el, close) {
+        A.$('#al-ok', el).onclick = close;
+        A.$$('[data-oid]', el).forEach(function (b) {
+          b.onclick = function () { close(); A.go('orderDetail', { orderId: b.getAttribute('data-oid') }); };
+        });
+      });
+  }
+
   A.api = function (action, payload) {
     return new Promise(function (resolve, reject) {
       function handle(r) {
         if (!r) return reject(new Error('Server se jawab nahi aaya. Dobara try karo.'));
+        if (r.alerts && r.alerts.length) setTimeout(function () { showAlerts(r.alerts); }, 0);
         if (r.ok) return resolve(r.data);
         if (r.relogin && action !== 'login' && action !== 'loginLink') A.showLogin(r.error);
         reject(new Error(r.error || 'Kuch galat ho gaya.'));

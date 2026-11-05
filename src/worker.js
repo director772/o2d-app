@@ -1,32 +1,44 @@
 /**
- * O2D — Cloudflare Worker
+ * O2D — Cloudflare Worker (CRM jaisa: data Cloudflare D1 mein, Sheet backup)
  * ------------------------------------------------------------
- * - App ka page (public/) Cloudflare se — duniya ke paas wale server se.
- * - /api: screens ka data Cloudflare ki copy (D1) se turant.
- *   Asli data Google Sheet + Drive mein hi rehta hai (Apps Script).
- *   Save / login / photo / video → seedha Apps Script, phir copy taaza.
- * - Har minute (cron): Sheet mein kuch badla? → copy taaza.
+ * - Har screen aur har save yahin turant (core.js) — Google ka intezaar nahi.
+ * - Save → D1 turant + "job" line mein → peeche se Apps Script Sheet mein
+ *   likhta hai (purana code: bill check, photo Drive folder, Activity Log).
+ *   Job ke baad Sheet ka taaza data (BMP deadline) wapas D1 mein.
+ * - Har minute: Sheet mein haath se badlav? → D1 mein le aao. Ruke hue job chalao.
+ * - Login / staff page / video upload shuru: seedha Apps Script (kabhi-kabhi wale kaam).
+ * - Kisi save ko Sheet mana kare (jaise bill number pehle se laga) → us staff ko
+ *   app mein saaf message (alerts) + order Sheet jaisa wapas.
  */
+import * as core from './core.js';
 
-// Ye screens copy se khulti hain
-const READS = new Set(['boot', 'me', 'home', 'stepList', 'orders', 'orderDetail', 'details', 'dashboard', 'loginInfo', 'loginNames']);
-// Ye kaam data badalte hain → copy dobara banao
-const WRITES = new Set(['createOrder', 'addOrderPhotos', 'submitStep', 'billIssue', 'cancelOrder', 'editOrder', 'editStep', 'undoStep', 'saveStaff', 'setPin', 'newLink', 'changePin']);
-// Order ke kaam: save ke saath hi halki copy
-const ORDER_WRITES = new Set(['createOrder', 'addOrderPhotos', 'submitStep', 'billIssue', 'cancelOrder', 'editOrder', 'editStep', 'undoStep']);
-const PUBLIC_READS = new Set(['loginInfo', 'loginNames']);
-const DIRTY_MS = 120000;     // save ke baad itni der tak (ya copy banne tak) seedha Sheet se
+const NATIVE_WRITES = {
+  submitStep: core.submitStep, createOrder: core.createOrder, billIssue: core.billIssue,
+  cancelOrder: core.cancelOrder, editOrder: core.editOrder, editStep: core.editStep, undoStep: core.undoStep
+};
+const WRITE_LABEL = {
+  submitStep: 'Step save', createOrder: 'Naya order', billIssue: 'Galti mili', cancelOrder: 'Order cancel',
+  editOrder: 'Order badla', editStep: 'Step badla', undoStep: 'Step wapas khola', addOrderPhotos: 'Parchi photo'
+};
+const PART = 900000;                 // bada payload (photo) D1 mein tukdon mein
+const VIDEO_CHUNK = 16 * 1024 * 1024;
 
 let tablesReady = false;
-let lastKickCheck = 0;
+let MEM = null;                      // { ver, M }
+
 async function ensureTables(env) {
   if (tablesReady) return;
   await env.DB.batch([
-    env.DB.prepare('DROP TABLE IF EXISTS cache'),
-    env.DB.prepare('CREATE TABLE IF NOT EXISTS screens (k TEXT PRIMARY KEY, v TEXT, h TEXT)'),
     env.DB.prepare('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)'),
-    env.DB.prepare('CREATE TABLE IF NOT EXISTS tokens (h TEXT PRIMARY KEY, name TEXT, staff TEXT, at INTEGER)'),
-    env.DB.prepare('CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, url TEXT, size INTEGER, mime TEXT, th TEXT, at INTEGER)')
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, json TEXT, h TEXT, pending_job INTEGER DEFAULT 0)'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS plogs (id INTEGER PRIMARY KEY AUTOINCREMENT, job_id INTEGER, json TEXT)'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, created INTEGER, actor TEXT, action TEXT, token TEXT, order_id TEXT, want_id TEXT, label TEXT, status TEXT, tries INTEGER DEFAULT 0, error TEXT, done_at INTEGER)'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS job_parts (job_id INTEGER, part INTEGER, data TEXT, PRIMARY KEY (job_id, part))'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT, created INTEGER, json TEXT, seen INTEGER DEFAULT 0)'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, url TEXT, size INTEGER, mime TEXT, th TEXT, at INTEGER)'),
+    env.DB.prepare('DROP TABLE IF EXISTS screens'),
+    env.DB.prepare('DROP TABLE IF EXISTS cache')
   ]);
   tablesReady = true;
 }
@@ -35,44 +47,310 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api')) await ensureTables(env);
-    if (url.pathname === '/api') {
-      if (request.method !== 'POST') return json({ ok: false, error: 'POST chahiye' }, 405);
-      return handleApi(request, env, ctx);
-    }
+    if (url.pathname === '/api' && request.method === 'POST') return handleApi(request, env, ctx);
     if (url.pathname === '/api/status') return json(await status(env));
+    if (url.pathname === '/api/refresh') { await importFromSheet(env, true); ctx.waitUntil(processJobs(env)); return json(await status(env)); }
     if (url.pathname === '/api/video-chunk' && request.method === 'POST') return videoChunk(request, env, url);
-    if (url.pathname === '/api/refresh') {
-      // Copy turant taaza (30 sec mein ek hi baar)
-      const m = await getMetaAll(env);
-      if (m.builtAt && Date.now() - Number(m.builtAt) < 30000) return json(await status(env));
-      await refreshMirror(env, 'manual');
-      return json(await status(env));
-    }
     return env.ASSETS.fetch(request);
   },
-
   async scheduled(event, env, ctx) {
     await ensureTables(env);
-    await refreshMirror(env, 'cron');
+    await processJobs(env);
+    await importFromSheet(env, false);
   }
 };
 
-/* ---------------- Video: seedha Drive tak ---------------- */
+/* ============================================================
+ *  API
+ * ============================================================ */
 
-const VIDEO_CHUNK = 16 * 1024 * 1024;  // 16 MB (256 KB ka guna) — kam chakkar, tez upload
+async function handleApi(request, env, ctx) {
+  let body;
+  try { body = JSON.parse(await request.text()); } catch (e) { return json({ ok: false, error: 'Request samajh nahi aaya.' }); }
+  const action = String(body.action || '');
+  const token = String(body.token || '');
+  const payload = body.payload || {};
+  const now = Date.now();
+
+  let M;
+  try { M = await loadModel(env); } catch (e) { M = null; }
+  if (!M) {
+    // Pehli baar: Sheet se data laao
+    await importFromSheet(env, true);
+    M = await loadModel(env);
+    if (!M) return json({ ok: false, error: 'Data abhi taiyar ho raha hai. 1 minute baad try karo.' });
+  }
+  const C = M.C;
+
+  try {
+    // ---- Bina login ----
+    if (action === 'loginNames') return json({ ok: true, data: core.loginNames(C) });
+    if (action === 'loginInfo') return json({ ok: true, data: core.loginInfo(C, payload.code) });
+    if (action === 'login' || action === 'loginLink') {
+      const res = await forward(env, body);
+      if (res && res.ok) ctx.waitUntil(importFromSheet(env, false).catch(() => {}));
+      if (res && res.ok && res.data && res.data.token) {
+        try {
+          const a = await core.actorFromToken(C, res.data.token);
+          res.data.boot = { config: core.uiConfig(C, a, now), me: core.meFor(C, a), home: core.homeFor(M, a, now) };
+        } catch (e) { /* Apps Script wala boot hi chalega */ }
+      }
+      if (res) delete res.who;
+      return json(res);
+    }
+
+    // ---- Login zaroori ----
+    let a;
+    try { a = await core.actorFromToken(C, token); }
+    catch (e) { return json({ ok: false, error: e.message, relogin: true }); }
+    const alerts = await takeAlerts(env, a.name);
+    const reply = (data) => json(Object.assign({ ok: true, data }, alerts.length ? { alerts } : {}));
+
+    switch (action) {
+      case 'boot': return reply({ config: core.uiConfig(C, a, now), me: core.meFor(C, a), home: core.homeFor(M, a, now) });
+      case 'me': return reply({ staff: core.meFor(C, a) });
+      case 'home': return reply(core.homeFor(M, a, now));
+      case 'stepList': return reply(core.stepList(M, a, payload.step, now));
+      case 'orders': return reply(core.myOrders(M, viewActor(C), payload.days || 30, now));
+      case 'search': return reply(core.searchOrders(M, payload.query, now));
+      case 'orderDetail': return reply(core.orderDetail(M, payload.orderId, a, now));
+      case 'details': {
+        const out = {};
+        (payload.orderIds || []).slice(0, 30).forEach((id) => { try { out[id] = core.orderDetail(M, id, a, now); } catch (e) { /* chhodo */ } });
+        return reply(out);
+      }
+      case 'dashboard': return reply(core.dashboard(M, a, { days: payload.days, from: payload.from, to: payload.to }, now));
+      case 'ackAlerts': return reply({ ok: true });
+    }
+
+    if (NATIVE_WRITES[action]) {
+      const p = JSON.parse(JSON.stringify(payload));
+      let out;
+      try { out = NATIVE_WRITES[action](M, a, p, now); }
+      catch (e) { if (!(e instanceof core.AppError)) MEM = null; throw e; }
+      if (!out.order) return reply(out.result);                // late reason / kuch badla nahi → kuch save nahi
+      await saveWrite(env, M, a, action, token, payload, out);
+      ctx.waitUntil(processJobs(env));
+      return reply(out.result);
+    }
+
+    if (action === 'addOrderPhotos') {
+      const o = M.byId.get(String(payload.orderId || '').toUpperCase());
+      if (!o) throw new core.AppError('Order nahi mila.');
+      if (!core.actorCan(a, 'ORDER_ENTRY')) throw new core.AppError('Permission nahi hai.');
+      o.uploading = true;
+      await saveWrite(env, M, a, action, token, payload, { order: o, logs: [] });
+      ctx.waitUntil(processJobs(env));
+      return reply({ orderId: o.orderId, added: (payload.photos || []).length });
+    }
+
+    // ---- Baaki (staff page, PIN, video) → seedha Apps Script ----
+    const res = await forward(env, body);
+    if (res && res.ok && ['saveStaff', 'setPin', 'newLink', 'changePin'].indexOf(action) >= 0) ctx.waitUntil(importFromSheet(env, true).catch(() => {}));
+    if (action === 'videoStart' && res && res.ok && res.data && res.data.sessionUrl) {
+      await env.DB.prepare('INSERT OR REPLACE INTO uploads (id, url, size, mime, th, at) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(res.data.uploadId, res.data.sessionUrl, Number(payload.size) || 0, String(payload.mimeType || 'video/mp4'), await sha(token), now).run();
+      delete res.data.sessionUrl;
+      res.data.direct = true;
+      res.data.chunkBytes = VIDEO_CHUNK;
+    }
+    if (res) delete res.who;
+    if (res && res.ok && alerts.length) res.alerts = alerts;
+    return json(res);
+  } catch (e) {
+    if (e instanceof core.AppError) return json({ ok: false, error: e.message, relogin: !!e.relogin });
+    return json({ ok: false, error: 'Kuch galat ho gaya: ' + (e && e.message ? e.message : e) });
+  }
+}
+
+function viewActor(C) {
+  return { name: 'Sab Orders', role: 'View', steps: C.steps.map((s) => s.key), isAdmin: true, isDirector: false };
+}
+
+/* ============================================================
+ *  DATA: D1 ↔ memory
+ * ============================================================ */
+
+async function getMeta(env, k) { const r = await env.DB.prepare('SELECT v FROM meta WHERE k = ?').bind(k).first(); return r ? r.v : null; }
+const metaStmt = (env, k, v) => env.DB.prepare('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)').bind(k, String(v));
+async function setMeta(env, k, v) { await metaStmt(env, k, v).run(); }
+const newVer = () => Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+
+async function loadModel(env) {
+  const ver = await getMeta(env, 'dataVer');
+  if (!ver) return null;
+  if (MEM && MEM.ver === ver) return MEM.M;
+  const [cfgR, logR, ordR, plR] = await env.DB.batch([
+    env.DB.prepare("SELECT v FROM kv WHERE k = 'config'"),
+    env.DB.prepare("SELECT k, v FROM kv WHERE k LIKE 'log:%'"),
+    env.DB.prepare('SELECT json FROM orders'),
+    env.DB.prepare('SELECT json FROM plogs ORDER BY id')
+  ]);
+  const cfg = (cfgR.results || [])[0];
+  if (!cfg) return null;
+  const C = JSON.parse(cfg.v);
+  const parts = (logR.results || []).sort((x, y) => Number(x.k.split(':')[1]) - Number(y.k.split(':')[1])).map((r) => r.v).join('');
+  const log = parts ? JSON.parse(parts) : [];
+  (plR.results || []).forEach((r) => log.push(JSON.parse(r.json)));
+  const orders = (ordR.results || []).map((r) => JSON.parse(r.json)).sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0));
+  const M = core.buildModel(C, orders, log);
+  MEM = { ver, M };
+  return M;
+}
+
+/** Save → order D1 mein + nayi log lines + job (Sheet ke liye) */
+async function saveWrite(env, M, a, action, token, payload, out) {
+  const o = out.order;
+  const now = Date.now();
+  const job = await env.DB.prepare('INSERT INTO jobs (created, actor, action, token, order_id, want_id, label, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id')
+    .bind(now, a.name, action, token, o.orderId, out.isNew ? o.orderId : '', WRITE_LABEL[action] || action, 'wait').first();
+  const jobId = job.id;
+  const pl = JSON.stringify(Object.assign({}, payload, out.isNew ? { createdAt: o.createdAt } : {}));
+  const stmts = [];
+  for (let i = 0, n = 0; i < pl.length; i += PART, n++) stmts.push(env.DB.prepare('INSERT INTO job_parts (job_id, part, data) VALUES (?, ?, ?)').bind(jobId, n, pl.slice(i, i + PART)));
+  stmts.push(env.DB.prepare('INSERT OR REPLACE INTO orders (id, json, h, pending_job) VALUES (?, ?, ?, ?)').bind(o.orderId, JSON.stringify(o), '', jobId));
+  (out.logs || []).forEach((l) => stmts.push(env.DB.prepare('INSERT INTO plogs (job_id, json) VALUES (?, ?)').bind(jobId, JSON.stringify(l))));
+  const ver = newVer();
+  stmts.push(metaStmt(env, 'dataVer', ver));
+  await env.DB.batch(stmts);
+  // Memory bhi taaza (agla request turant naya data dekhe)
+  if (out.isNew) { M.orders.push(o); M.byId.set(o.orderId, o); }
+  (out.logs || []).forEach((l) => M.log.push(l));
+  MEM = { ver, M };
+}
+
+/* ============================================================
+ *  JOBS: D1 → Sheet (peeche se, line se)
+ * ============================================================ */
+
+async function processJobs(env) {
+  const lock = await getMeta(env, 'jobLock');
+  if (lock && Date.now() - Number(lock) < 90000) return;          // koi aur chala raha hai
+  await setMeta(env, 'jobLock', Date.now());
+  const t0 = Date.now();
+  try {
+    for (let n = 0; n < 20 && Date.now() - t0 < 25000; n++) {
+      const job = await env.DB.prepare("SELECT * FROM jobs WHERE status IN ('wait','retry') ORDER BY id LIMIT 1").first();
+      if (!job) break;
+      const parts = await env.DB.prepare('SELECT data FROM job_parts WHERE job_id = ? ORDER BY part').bind(job.id).all();
+      const payload = JSON.parse((parts.results || []).map((r) => r.data).join('') || '{}');
+      const res = await forward(env, { mirrorKey: env.MIRROR_KEY, action: 'runJob', job: { action: job.action, token: job.token, payload, wantId: job.want_id } });
+
+      if (!res || !res.ok || !res.res) {
+        const tries = (job.tries || 0) + 1;
+        await env.DB.prepare('UPDATE jobs SET status = ?, tries = ?, error = ? WHERE id = ?')
+          .bind(tries >= 10 ? 'fail' : 'retry', tries, (res && res.error) || 'Google se jawab nahi', job.id).run();
+        if (tries >= 10) await finishJob(env, job, false, (res && res.error) || 'Google Sheet tak nahi pahunch paaye', null);
+        break;
+      }
+      const r = res.res;
+      const ok = r.ok && !(r.data && r.data.needLateReason);
+      const err = ok ? '' : (r.error || (r.data && r.data.message) || 'Sheet ne mana kiya');
+      await finishJob(env, job, ok, err, res.state);
+    }
+  } finally {
+    await setMeta(env, 'jobLock', 0);
+  }
+}
+
+async function finishJob(env, job, ok, err, state) {
+  const stmts = [
+    env.DB.prepare('UPDATE jobs SET status = ?, error = ?, done_at = ? WHERE id = ?').bind(ok ? 'done' : 'fail', err || '', Date.now(), job.id),
+    env.DB.prepare('DELETE FROM job_parts WHERE job_id = ?').bind(job.id),
+    env.DB.prepare('DELETE FROM plogs WHERE job_id = ?').bind(job.id),
+    env.DB.prepare('UPDATE orders SET pending_job = 0 WHERE pending_job = ?').bind(job.id),
+    env.DB.prepare("DELETE FROM jobs WHERE status IN ('done','fail') AND done_at < ?").bind(Date.now() - 7 * 86400000)
+  ];
+  if (!ok) {
+    stmts.push(env.DB.prepare('INSERT INTO alerts (actor, created, json) VALUES (?, ?, ?)')
+      .bind(job.actor, Date.now(), JSON.stringify({ label: job.label, orderId: job.order_id, error: err, time: core.fmtDateTime(job.created) })));
+  }
+  stmts.push(metaStmt(env, 'dataVer', newVer()));
+  await env.DB.batch(stmts);
+  if (state) await applyState(env, state, ok ? null : job.order_id);
+}
+
+async function takeAlerts(env, actor) {
+  const r = await env.DB.prepare('SELECT id, json FROM alerts WHERE actor = ? AND seen = 0 ORDER BY id').bind(actor).all();
+  const rows = r.results || [];
+  if (!rows.length) return [];
+  await env.DB.prepare('UPDATE alerts SET seen = 1 WHERE actor = ? AND seen = 0').bind(actor).run();
+  return rows.map((x) => JSON.parse(x.json));
+}
+
+/* ============================================================
+ *  SHEET → D1
+ * ============================================================ */
+
+async function importFromSheet(env, force) {
+  const known = force ? '' : (await getMeta(env, 'sheetVer')) || '';
+  const res = await forward(env, { mirrorKey: env.MIRROR_KEY, action: 'exportIfChanged', knownVer: known });
+  if (!res || !res.ok) { await setMeta(env, 'lastError', (res && res.error) || 'no response'); return; }
+  await setMeta(env, 'checkedAt', Date.now());
+  if (res.same) return;
+  await applyState(env, res.state, null);
+  await env.DB.batch([metaStmt(env, 'sheetVer', res.ver || ''), metaStmt(env, 'importedAt', Date.now()), metaStmt(env, 'lastError', '')]);
+}
+
+/** Sheet ka data D1 mein — sirf jo badla; jin orders ka save abhi Sheet tak nahi pahuncha unhe mat chhuo */
+async function applyState(env, s, forceOrder) {
+  if (!s || !s.orders) return;
+  const stmts = [];
+  let changed = false;
+
+  const C = {
+    staff: s.staff, office: s.office, holidays: s.holidays, when: s.when, steps: s.steps,
+    lateReasons: s.lateReasons, roles: s.roles, photo: s.photo, photoFields: s.photoFields,
+    title: s.title, secret: s.secret, tokenDays: s.tokenDays
+  };
+  const cfgJson = JSON.stringify(C);
+  const cfgH = await sha(cfgJson);
+  if (cfgH !== await getMeta(env, 'cfgHash')) { stmts.push(env.DB.prepare("INSERT OR REPLACE INTO kv (k, v) VALUES ('config', ?)").bind(cfgJson), metaStmt(env, 'cfgHash', cfgH)); changed = true; }
+
+  const logJson = JSON.stringify(s.log || []);
+  const logH = await sha(logJson);
+  if (logH !== await getMeta(env, 'logHash')) {
+    stmts.push(env.DB.prepare("DELETE FROM kv WHERE k LIKE 'log:%'"));
+    for (let i = 0, n = 0; i < logJson.length; i += PART, n++) stmts.push(env.DB.prepare('INSERT INTO kv (k, v) VALUES (?, ?)').bind('log:' + n, logJson.slice(i, i + PART)));
+    stmts.push(metaStmt(env, 'logHash', logH));
+    changed = true;
+  }
+
+  const cur = await env.DB.prepare('SELECT id, h, pending_job FROM orders').all();
+  const have = {};
+  (cur.results || []).forEach((r) => { have[r.id] = r; });
+  const seen = {};
+  for (const o of s.orders) {
+    seen[o.orderId] = true;
+    const row = have[o.orderId];
+    if (row && row.pending_job && o.orderId !== forceOrder) continue;     // app ka save abhi raste mein
+    const j = JSON.stringify(o);
+    const h = await sha(j);
+    if (row && row.h === h && !row.pending_job) continue;
+    stmts.push(env.DB.prepare('INSERT OR REPLACE INTO orders (id, json, h, pending_job) VALUES (?, ?, ?, 0)').bind(o.orderId, j, h));
+    changed = true;
+  }
+  Object.keys(have).forEach((id) => {
+    if (!seen[id] && (!have[id].pending_job || id === forceOrder)) { stmts.push(env.DB.prepare('DELETE FROM orders WHERE id = ?').bind(id)); changed = true; }
+  });
+
+  if (changed) stmts.push(metaStmt(env, 'dataVer', newVer()));
+  for (let i = 0; i < stmts.length; i += 80) await env.DB.batch(stmts.slice(i, i + 80));
+}
+
+/* ============================================================
+ *  VIDEO: seedha Drive tak (stream)
+ * ============================================================ */
 
 async function videoChunk(request, env, url) {
   const id = url.searchParams.get('u') || '';
   const token = request.headers.get('X-O2D-Token') || '';
-  if (!tokenAlive(token)) return json({ ok: false, error: 'Login khatam ho gaya. Dobara login karo.', relogin: true });
   const row = await env.DB.prepare('SELECT url, size, mime, th FROM uploads WHERE id = ?').bind(id).first();
   if (!row || row.th !== await sha(token)) return json({ ok: false, error: 'Video upload ka samay khatam ho gaya. Video hata ke dobara daalo.' });
   const total = Number(row.size);
-
   let resp;
   try {
     if (url.searchParams.get('status')) {
-      // Drive tak kitna pahunch chuka?
       resp = await fetch(row.url, { method: 'PUT', headers: { 'Content-Range': 'bytes */' + total, 'Content-Length': '0' } });
     } else {
       const offset = Number(url.searchParams.get('offset')) || 0;
@@ -80,20 +358,14 @@ async function videoChunk(request, env, url) {
       if (!len || !request.body) return json({ ok: false, error: 'Video ka tukda khaali aaya. Dobara try karo.' });
       const end = offset + len - 1;
       if (end >= total) return json({ ok: false, error: 'Video ka size match nahi hua. Video hata ke dobara daalo.' });
-      // Phone se aata hua tukda usi waqt Drive ko bhejte jao (pura aane ka intezaar nahi) → lagbhag aadha time
       const { readable, writable } = new FixedLengthStream(len);
       const pipe = request.body.pipeTo(writable);
-      resp = await fetch(row.url, {
-        method: 'PUT',
-        headers: { 'Content-Range': 'bytes ' + offset + '-' + end + '/' + total, 'Content-Type': row.mime || 'video/mp4' },
-        body: readable
-      });
+      resp = await fetch(row.url, { method: 'PUT', headers: { 'Content-Range': 'bytes ' + offset + '-' + end + '/' + total, 'Content-Type': row.mime || 'video/mp4' }, body: readable });
       await pipe.catch(() => {});
     }
   } catch (e) {
     return json({ ok: false, error: 'Video Drive tak nahi pahunchi. Net check karo, dobara try ho raha hai.' });
   }
-
   if (resp.status === 308) {
     const m = String(resp.headers.get('Range') || '').match(/-(\d+)$/);
     return json({ ok: true, data: { done: false, next: m ? Number(m[1]) + 1 : 0 } });
@@ -108,73 +380,13 @@ async function videoChunk(request, env, url) {
   return json({ ok: false, error: 'Video ka tukda Drive tak nahi gaya (' + resp.status + '). Dobara try karo.' });
 }
 
-/* ---------------- API ---------------- */
-
-async function handleApi(request, env, ctx) {
-  let body;
-  try { body = JSON.parse(await request.text()); } catch (e) { return json({ ok: false, error: 'Request samajh nahi aaya.' }); }
-  const action = String(body.action || '');
-  const token = String(body.token || '');
-  const payload = body.payload || {};
-  if (action === 'loginInfo' && payload.code) payload.code = String(payload.code).trim().toUpperCase();
-
-  // Peeche-peeche: copy purani ho (cron ruka ho) toh taaza karwa do — 2 minute mein ek baar hi dekhta hai
-  if (Date.now() - lastKickCheck > 120000) { lastKickCheck = Date.now(); ctx.waitUntil(kickIfStale(env).catch(() => {})); }
-
-  if (READS.has(action)) {
-    try {
-      const hit = await fromMirror(env, action, token, payload);
-      if (hit) return json({ ok: true, data: hit, src: 'cf' });
-    } catch (e) { /* copy mein dikkat → Sheet se */ }
-  }
-
-  // Apps Script (asli data) se
-  const started = Date.now();
-  let res;
-  if (ORDER_WRITES.has(action)) {
-    // Save + halki copy EK hi chakkar mein → jawab aate hi Cloudflare taaza, next step turant
-    await env.DB.batch([metaStmt(env, 'dirty', String(started)), metaStmt(env, 'dirtyOrder', String(payload.orderId || ''))]);
-    // Save poora hoga hi — phone ka net chala jaaye ya app band ho jaaye tab bhi (Cloudflare khud poora karta hai)
-    const job = (async () => {
-      const r = await forward(env, { mirrorKey: env.MIRROR_KEY, action: 'writeAndMirror', writeAction: action, token: token, payload: payload });
-      if (r && r.ok && r.mirror && r.ver) {
-        try { await storeMirror(env, r.mirror, r.ver, started, true); } catch (e) { /* cron bana lega */ }
-      } else if (r && r.ok) {
-        await refreshMirror(env, 'write');
-      }
-      return r;
-    })();
-    ctx.waitUntil(job.catch(() => {}));
-    res = await job;
-    if (res && typeof res === 'object') { delete res.mirror; delete res.ver; }
-  } else {
-    if (WRITES.has(action)) await setMeta(env, 'dirty', String(started));
-    res = await forward(env, body);
-    if (WRITES.has(action) && res && res.ok) ctx.waitUntil(refreshMirror(env, 'write'));
-    // Video: Drive ka upload link Cloudflare apne paas rakhe → tukde seedha Cloudflare se Drive (tez)
-    if (action === 'videoStart' && res && res.ok && res.data && res.data.sessionUrl) {
-      await env.DB.prepare('INSERT OR REPLACE INTO uploads (id, url, size, mime, th, at) VALUES (?, ?, ?, ?, ?, ?)')
-        .bind(res.data.uploadId, res.data.sessionUrl, Number(payload.size) || 0, String(payload.mimeType || 'video/mp4'), await sha(token), Date.now()).run();
-      delete res.data.sessionUrl;
-      res.data.direct = true;
-      res.data.chunkBytes = VIDEO_CHUNK;
-      ctx.waitUntil(env.DB.prepare('DELETE FROM uploads WHERE at < ?').bind(Date.now() - 7 * 86400000).run().catch(() => {}));
-    }
-  }
-  ctx.waitUntil(learnToken(env, action, token, res).catch(() => {}));
-
-  if (res && typeof res === 'object') delete res.who;
-  return json(res);
-}
+/* ============================================================
+ *  CHHOTE KAAM
+ * ============================================================ */
 
 async function forward(env, body) {
   try {
-    const r = await fetch(env.APPS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(body),
-      redirect: 'follow'
-    });
+    const r = await fetch(env.APPS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), redirect: 'follow' });
     const txt = await r.text();
     try { return JSON.parse(txt); }
     catch (e) { return { ok: false, error: 'Google Sheet ka jawab samajh nahi aaya. Thodi der baad try karo.' }; }
@@ -183,233 +395,23 @@ async function forward(env, body) {
   }
 }
 
-/** Copy mein se data — sirf jab copy taaza ho aur token jaana-pehchana ho */
-async function fromMirror(env, action, token, payload) {
-  // Suffix = "|action|payload" — naam token se database khud jodta hai (EK hi chakkar)
-  const isPublic = PUBLIC_READS.has(action);
-  let suffixes;
-  if (action === 'boot') {
-    suffixes = ['config', 'me', 'home'].map((a) => cacheKey('', a, {}));
-  } else if (action === 'details') {
-    const ids = (payload.orderIds || []).slice(0, 15);
-    if (!ids.length) return {};
-    suffixes = ids.map((id) => cacheKey('', 'orderDetail', { orderId: id }));
-  } else {
-    suffixes = [cacheKey('', action, payload)];
-  }
-
-  let h = '';
-  if (!isPublic) {
-    if (!tokenAlive(token)) return null;
-    h = await sha(token);
-  }
-
-  const ph = suffixes.map(() => '(?)').join(',');
-  const [metaR, tokR, rowsR] = await env.DB.batch([
-    env.DB.prepare('SELECT k, v FROM meta'),
-    env.DB.prepare('SELECT name, staff FROM tokens WHERE h = ?').bind(h),
-    env.DB.prepare(
-      `SELECT c.k, c.v FROM screens c WHERE c.k IN (
-         SELECT t.name || s.column1 FROM tokens t, (VALUES ${ph}) s WHERE t.h = ?
-         UNION ALL SELECT '*' || s2.column1 FROM (VALUES ${ph}) s2)`
-    ).bind(...suffixes, h, ...suffixes)
-  ]);
-
-  const meta = {};
-  for (const r of metaR.results || []) meta[r.k] = r.v;
-  if (!meta.ver) return null;
-  if (meta.dirty && Number(meta.dirty) > Number(meta.builtFrom || 0) && Date.now() - Number(meta.dirty) < DIRTY_MS) {
-    // Save chal raha hai: sirf USI order ki detail Sheet se, baaki sab Cloudflare se (tez)
-    const ids = action === 'details' ? (payload.orderIds || []) : (action === 'orderDetail' ? [payload.orderId] : []);
-    if (!meta.dirtyOrder || ids.indexOf(meta.dirtyOrder) >= 0) return null;
-  }
-
-  let who = '*';
-  if (!isPublic) {
-    const t = (tokR.results || [])[0];
-    if (!t || t.staff !== meta.staff) return null;   // staff mein badlav → Sheet se dobara pakka karo
-    who = t.name;
-  }
-
-  const rows = {};
-  for (const r of rowsR.results || []) rows[r.k] = r.v;
-  const pick = (suf) => rows[who + suf] || rows['*' + suf] || null;
-
-  if (action === 'boot') {
-    const c = pick(suffixes[0]), m = pick(suffixes[1]), h2 = pick(suffixes[2]);
-    if (!c || !m || !h2) return null;
-    return { config: JSON.parse(c), me: JSON.parse(m).staff, home: JSON.parse(h2) };
-  }
-  if (action === 'details') {
-    const ids = (payload.orderIds || []).slice(0, 15);
-    const out = {};
-    for (let i = 0; i < ids.length; i++) {
-      const v = pick(suffixes[i]);
-      if (!v) return null;                        // koi bhi kam ho → Sheet se poora
-      out[ids[i]] = JSON.parse(v);
-    }
-    return out;
-  }
-  const v = pick(suffixes[0]);
-  return v ? JSON.parse(v) : null;
-}
-
-function tokenAlive(token) {
-  if (!token) return false;
-  try {
-    const p = token.split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
-    const txt = new TextDecoder().decode(Uint8Array.from(atob(p), (c) => c.charCodeAt(0)));
-    return Number(txt.split('|')[2]) > Date.now();
-  } catch (e) { return false; }
-}
-
-/* ---------------- Token → naam ---------------- */
-
-async function learnToken(env, action, token, res) {
-  if (!res) return;
-  const meta = await getMetaAll(env);
-  if (res.relogin && token) {
-    await env.DB.prepare('DELETE FROM tokens WHERE h = ?').bind(await sha(token)).run();
-    return;
-  }
-  if (!res.ok || !meta.staff) return;
-  let t = token, name = res.who;
-  if ((action === 'login' || action === 'loginLink') && res.data && res.data.token) {
-    t = res.data.token;
-    name = (res.data.boot && res.data.boot.me && res.data.boot.me.name) || (res.data.staff && res.data.staff.name) || '';
-  }
-  if (!t || !name) return;
-  const h = await sha(t);
-  const old = await env.DB.prepare('SELECT name, staff FROM tokens WHERE h = ?').bind(h).first();
-  if (old && old.name === name && old.staff === meta.staff) return;   // pehle se hai → likhne ki zaroorat nahi
-  await env.DB.prepare('INSERT OR REPLACE INTO tokens (h, name, staff, at) VALUES (?, ?, ?, ?)')
-    .bind(h, name, meta.staff, Date.now()).run();
-}
-
-/* ---------------- Copy banana ---------------- */
-
-async function refreshMirror(env, why) {
-  try { await refreshMirrorInner(env, why); }
-  catch (e) { await setMeta(env, 'lastError', why + ': ' + String(e && e.stack || e).slice(0, 500)).catch(() => {}); }
-}
-
-async function refreshMirrorInner(env, why) {
-  const started = Date.now();
-  const meta = await getMetaAll(env);
-  const force = why === 'write' || why === 'manual' || !meta.ver;
-  const res = await forward(env, {
-    mirrorKey: env.MIRROR_KEY,
-    action: force ? 'mirrorBuild' : 'mirrorCheck',
-    knownVer: meta.ver || ''
-  });
-  if (!res || !res.ok) { await setMeta(env, 'lastError', (res && res.error) || 'no response'); return; }
-  if (res.same) {
-    // Kuch nahi badla → kuch mat likho (sirf 5 minute mein ek baar "dekha" note)
-    if (!meta.checkedAt || Date.now() - Number(meta.checkedAt) > 300000) await setMeta(env, 'checkedAt', String(Date.now()));
-    return;
-  }
-
-  await storeMirror(env, res.mirror || [], res.ver, started, false);
-}
-
-/**
- * Copy D1 mein — sirf badli hui screen likhta hai (CRM jaisa).
- * light = save ke baad wali halki copy: kuch delete nahi karta, aur cron ko poori copy ka ishaara deta hai.
- */
-async function storeMirror(env, entries, verObj, started, light) {
-  const now = await getMetaAll(env);
-  if (Number(now.builtFrom || 0) > started) return;   // naya build pehle hi aa chuka
-
-  const have = {};
-  const cur = await env.DB.prepare('SELECT k, h FROM screens').all();
-  for (const r of cur.results || []) have[r.k] = r.h;
-
-  const stmts = [];
-  const seen = {};
-  for (const e of entries) {
-    const k = cacheKey(e.who, e.action, e.payload);
-    const v = JSON.stringify(e.data);
-    // "at" (kab bana) har baar badalta hai — use chhod ke dekho asli data badla ya nahi
-    const h = await sha(JSON.stringify(e.data, (key, val) => (key === 'at' ? undefined : val)));
-    seen[k] = true;
-    if (have[k] === h) continue;
-    stmts.push(env.DB.prepare('INSERT OR REPLACE INTO screens (k, v, h) VALUES (?, ?, ?)').bind(k, v, h));
-  }
-  if (!light) {
-    for (const k of Object.keys(have)) {
-      if (!seen[k]) stmts.push(env.DB.prepare('DELETE FROM screens WHERE k = ?').bind(k));
-    }
-  }
-  const changed = stmts.length;
-
-  stmts.push(
-    metaStmt(env, 'ver', (light ? 'light|' : '') + verObj.full),   // light ke baad cron poori copy banayega (Dashboard)
-    metaStmt(env, 'builtFrom', String(started)),
-    metaStmt(env, 'builtAt', String(Date.now())),
-    metaStmt(env, 'info', JSON.stringify({ ms: Date.now() - started, screens: Object.keys(seen).length, changed: changed, light: light }))
-  );
-  if (now.staff !== verObj.staff) stmts.push(metaStmt(env, 'staff', verObj.staff));
-  if (now.lastError) stmts.push(metaStmt(env, 'lastError', ''));
-  for (let i = 0; i < stmts.length; i += 80) await env.DB.batch(stmts.slice(i, i + 80));
-}
-
-async function kickIfStale(env) {
-  const m = await getMetaAll(env);
-  const last = Math.max(Number(m.builtAt || 0), Number(m.checkedAt || 0));
-  if (Date.now() - last < 8 * 60000) return;
-  if (m.kickAt && Date.now() - Number(m.kickAt) < 60000) return;
-  await setMeta(env, 'kickAt', String(Date.now()));
-  await refreshMirror(env, 'stale');
-}
-
 async function status(env) {
-  const m = await getMetaAll(env);
-  let info = {};
-  try { info = JSON.parse(m.info || '{}'); } catch (e) {}
+  const g = async (k) => getMeta(env, k);
+  const pend = await env.DB.prepare("SELECT COUNT(*) AS n FROM jobs WHERE status IN ('wait','retry')").first();
+  const failed = await env.DB.prepare("SELECT COUNT(*) AS n FROM jobs WHERE status = 'fail'").first();
+  const cnt = await env.DB.prepare('SELECT COUNT(*) AS n FROM orders').first();
+  const t = async (k) => { const v = await g(k); return v && Number(v) ? new Date(Number(v)).toISOString() : null; };
   return {
-    copyBani: m.builtAt ? new Date(Number(m.builtAt)).toISOString() : null,
-    banneMeLaga: info.ms ? info.ms + ' ms' : null,
-    screens: info.screens || 0,
-    pichliBaarBadli: info.changed,
-    halki: !!info.light,
-    lastCheck: m.checkedAt ? new Date(Number(m.checkedAt)).toISOString() : null,
-    error: m.lastError || ''
+    orders: cnt ? cnt.n : 0, sheetMeinJaneBaaki: pend ? pend.n : 0, failJobs: failed ? failed.n : 0,
+    sheetSeLiya: await t('importedAt'), lastCheck: await t('checkedAt'), error: (await g('lastError')) || ''
   };
 }
-
-/* ---------------- Chhote helpers ---------------- */
-
-function cacheKey(who, action, payload) {
-  const p = {};
-  Object.keys(payload || {}).sort().forEach((k) => {
-    const v = payload[k];
-    if (k === 'appUrl' || v === '' || v === null || v === undefined) return;
-    p[k] = v;
-  });
-  return who + '|' + action + '|' + JSON.stringify(p);
-}
-
-async function getMetaAll(env) {
-  const r = await env.DB.prepare('SELECT k, v FROM meta').all();
-  const m = {};
-  for (const row of r.results || []) m[row.k] = row.v;
-  return m;
-}
-
-function metaStmt(env, k, v) {
-  return env.DB.prepare('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)').bind(k, v);
-}
-
-async function setMeta(env, k, v) { await metaStmt(env, k, v).run(); }
 
 async function sha(s) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function json(obj, status) {
-  return new Response(JSON.stringify(obj), {
-    status: status || 200,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
-  });
+function json(obj, st) {
+  return new Response(JSON.stringify(obj), { status: st || 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
