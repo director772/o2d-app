@@ -381,7 +381,7 @@ export function orderDetail(M, id, a, now) {
   return {
     orderId: o.orderId, customer: shown(o.customerName), phone: shown(o.phone), city: shown(o.city), item: o.item,
     customerType: o.customerType, orderType: o.orderType, payment: o.payment,
-    salesperson: o.salesperson, orderTime: fmtDateTime(o.createdAt), orderPhotos: links(o.orderPhoto),
+    salesperson: o.salesperson, orderTime: fmtDateTime(o.createdAt), orderPhotos: links(o.orderPhoto), orderUploading: !!o.uploading,
     currentStep: o.currentStep, currentLabel: o.currentStep ? stepDef(C, o.currentStep).label : 'Complete',
     signal: sigOut(sig), complete: o.complete, cancelled: o.cancelled, cancelReason: o.cancelReason,
     steps,
@@ -804,9 +804,12 @@ export function editOrder(M, a, p, now) {
     changes.push(f.header + ': "' + (shown(o[map[k]]) || '-') + '" → "' + (shown(v) || '-') + '"');
     o[map[k]] = v;
   });
+  const parchi = ((p.photos || {}).ORDER_PHOTO) || [];
+  if (parchi.length) changes.push('Order Parchi Photo: nayi ' + parchi.length + ' photo lagi (purani Drive mein hai)');
   if (!changes.length) return { result: { ok: true, message: 'Kuch badla nahi.' }, nothing: true };
+  if (parchi.length) o.uploading = true;    // naya link Sheet se aate hi (kuch second) dikhega
   const log = newLog(C, now, o, 'Naya Order', 'Order badla', a.name, a.name, now, false, '', changes.join(' · '));
-  return { order: o, logs: [log], result: { ok: true, message: o.orderId + ' ki jaankari badal gayi.' } };
+  return { order: o, logs: [log], result: { ok: true, message: o.orderId + ' ki jaankari badal gayi.' + (parchi.length ? ' Nayi parchi Drive mein ja rahi hai — link kuch second mein dikhega.' : '') } };
 }
 
 export function editStep(M, a, p, now) {

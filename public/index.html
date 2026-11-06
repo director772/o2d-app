@@ -2525,7 +2525,7 @@ window.O2D = window.O2D || {};
     const det = [
       ['Phone', d.phone ? '<a href="tel:' + A.esc(d.phone) + '">' + A.esc(d.phone) + '</a>' : ''],
       ['Item', A.esc(d.item)], ['Customer Type', A.esc(d.customerType)], ['Order Type', A.esc(d.orderType)],
-      ['Payment', A.esc(d.payment)], ['Salesperson', A.esc(d.salesperson)], ['Parchi', links(d.orderPhotos)]
+      ['Payment', A.esc(d.payment)], ['Salesperson', A.esc(d.salesperson)], ['Parchi', links(d.orderPhotos) + (d.orderUploading ? ' <span class="muted small">(nayi parchi Drive mein ja rahi hai)</span>' : '')]
     ].filter(function (x) { return x[1]; });
     const canEdit = A.staff && (A.staff.isDirector || A.staff.canEdit) && !d.cancelled;
     h += '<div class="panel"><div class="panel-head row between"><h3>Order ki jaankari</h3>' +
@@ -2687,13 +2687,19 @@ window.O2D = window.O2D || {};
                   CUSTOMER_TYPE: d.customerType, ORDER_TYPE: d.orderType, PAYMENT: d.payment };
     A.sheet('<h3>' + A.esc(d.orderId) + ' — order badlo</h3>' +
       fields.map(function (f) { return fieldHtml(f, cur[f.key]); }).join('') +
+      '<div class="field"><label>Order Parchi Photo — nayi lagao</label>' +
+        '<div class="small" style="margin-bottom:6px">Abhi wali: ' + (d.orderPhotos && d.orderPhotos.length ? links(d.orderPhotos) : 'koi photo nahi') + '</div>' +
+        '<div id="ep-ORDER_PHOTO"></div>' +
+        '<div class="hint">Nayi parchi lagaoge toh Sheet mein purani ki jagah yeh lagegi (purani Drive mein rahegi). Nahi badalni toh khaali chhodo.</div></div>' +
       '<p class="muted small">Badlav Activity Log mein likha jaayega (kisne, kya se kya).</p>' +
       '<div class="btn-row"><button class="btn btn-ghost" id="e-no">Rehne do</button><button class="btn btn-main" id="e-yes">Save karo</button></div>',
       function (el, close) {
         wireMulti(el);
         A.$('#e-no', el).onclick = close;
+        const parchi = A.photoPicker(A.$('#ep-ORDER_PHOTO', el), { label: 'Nayi parchi ki photo', max: 3 });
         A.$('#e-yes', el).onclick = function () {
-          A.call('editOrder', { orderId: d.orderId, fields: readFields(el, fields) }, 'Badal raha hai...')
+          const l = parchi.get();
+          A.call('editOrder', { orderId: d.orderId, fields: readFields(el, fields), photos: l && l.length ? { ORDER_PHOTO: l } : {} }, 'Badal raha hai...')
             .then(function (r) { afterSave(r, close, params); }).catch(function () {});
         };
       });
