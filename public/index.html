@@ -530,6 +530,15 @@ window.O2D = window.O2D || {};
       });
   };
 
+  /** Phone / computer ne kisi ek staff ka link yaad rakha hai → bhool jao, sabke naam wala login dikhao */
+  A.forgetLink = function () {
+    store.del(LINK_KEY);
+    try { if (location.search) history.replaceState(null, '', location.pathname); } catch (e) {}
+    loginInfoLoaded = false;
+    window.O2D_NAMES = []; window.O2D_LINK = ''; window.O2D_LINK_ERR = '';
+    A.showLogin('');
+  };
+
   /** "Aapka naam" dropdown — is kaam pe tick wale staff */
   A.namesFor = function (stepKey) {
     const s = (A.config && A.config.steps || []).filter(function (x) { return x.key === stepKey; })[0];
@@ -1566,8 +1575,10 @@ window.O2D = window.O2D || {};
             '<div class="login-body" style="text-align:left">' +
               '<h2>Yeh link band ho chuka hai</h2>' +
               '<p style="margin-top:8px">Director se apna naya link mango aur usi link se kholo.</p>' +
+              '<button type="button" class="btn btn-ghost btn-sm mt" id="lg-other">Naam chun ke login karo</button>' +
             '</div>' +
           '</div></div>';
+        A.$('#lg-other', view).onclick = function () { A.forgetLink(); };
         return;
       }
 
@@ -1595,8 +1606,13 @@ window.O2D = window.O2D || {};
             '<div class="pin-msg" id="lg-msg">' + A.esc(firstMsg) + '</div>' +
             '<button type="button" class="btn btn-main btn-block" id="lg-go">Andar jao</button>' +
           '</div>' +
-          '<div class="login-foot">PIN bhool gaye? Director se poochho.</div>' +
+          '<div class="login-foot">' +
+            (link ? '<button type="button" class="btn btn-ghost btn-sm" id="lg-other" style="margin-bottom:6px">' + A.esc(names[0]) + ' nahi ho? Dusre naam se login karo</button><br>' : '') +
+            'PIN bhool gaye? Director se poochho.</div>' +
         '</div></div>';
+
+      const other = A.$('#lg-other', view);
+      if (other) other.onclick = function () { A.forgetLink(); };
 
       const sel = A.$('#lg-name', view);
       const pin = A.$('#lg-pin', view);
