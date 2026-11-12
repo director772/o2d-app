@@ -1989,13 +1989,17 @@ window.O2D = window.O2D || {};
     }
 
     if (stepKey === 'DISPATCH' && byHand) {
-      h += '<div class="note">Is order ki packing <b>By Hand</b> thi — customer khud le gaya. Bilty zaroori nahi.</div>';
+      h += '<div class="note">Is order ki packing <b>By Hand</b> thi. Bilty aayi hai toh neeche bharo, nahi aayi toh <b>Not Applicable</b> chuno.</div>' +
+           '<div class="field"><label>Bilty aayi hai? <span class="req">*</span></label><div class="choices">' +
+             '<button type="button" class="choice" data-na="no">Haan, bilty hai</button>' +
+             '<button type="button" class="choice" data-na="yes">Not Applicable (bilty nahi aati)</button>' +
+           '</div></div><div id="sf-bilty" class="hide">';
     }
 
     // Baaki fields settings se
     (cfg.fields || []).forEach(function (f) {
       if (stepKey === 'STOCK_CHECK') return;
-      const req = f.required && !(stepKey === 'DISPATCH' && byHand);
+      const req = f.required;
       const star = req ? ' <span class="req">*</span>' : '';
       if (f.type === 'select') {
         h += '<div class="field"><label>' + A.esc(f.header) + star + '</label><div class="choices" data-sel="' + f.key + '">' +
@@ -2017,6 +2021,8 @@ window.O2D = window.O2D || {};
              '<input class="input" id="in-' + f.key + '" placeholder="' + A.esc(ph) + '" autocomplete="off">' + '</div>';
       }
     });
+
+    if (stepKey === 'DISPATCH' && byHand) h += '</div>';    // #sf-bilty band
 
     // Sirf Director: kaam pehle hua tha toh time badal sakte hain
     if (A.director) {
@@ -2041,6 +2047,13 @@ window.O2D = window.O2D || {};
         state.decision = b.getAttribute('data-dec');
         A.$$('[data-dec]', box).forEach(function (x) { x.classList.toggle('on', x === b); });
         A.$('#f-date', box).classList.toggle('hide', state.decision !== 'No');
+      };
+    });
+    A.$$('[data-na]', box).forEach(function (b) {
+      b.onclick = function () {
+        state.na = b.getAttribute('data-na');
+        A.$$('[data-na]', box).forEach(function (x) { x.classList.toggle('on', x === b); });
+        A.$('#sf-bilty', box).classList.toggle('hide', state.na !== 'no');
       };
     });
     A.$$('[data-sel]', box).forEach(function (wrap) {
@@ -2097,6 +2110,15 @@ window.O2D = window.O2D || {};
         const nPhotos = (input.photos.PACKING_PHOTOS || []).length;
         if (!input.skipMedia && !nPhotos && !input.videos.length) {
           throw new Error('Packing ki kam se kam 1 photo ya 1 video daalo — ya "skip" pe tick karo.');
+        }
+      }
+      if (stepKey === 'DISPATCH' && byHand) {
+        if (!state.na) throw new Error('"Bilty aayi hai?" — Haan ya Not Applicable chuno.');
+        if (state.na === 'yes') {
+          input.notApplicable = true;
+          input.fields.TRANSPORTER = 'Not Applicable';
+          input.fields.BILTY_NO = 'Not Applicable';
+          input.photos.BILTY_PHOTO = [];
         }
       }
       if (doneAt && doneAt.value) input.doneAt = doneAt.value;

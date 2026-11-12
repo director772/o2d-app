@@ -636,17 +636,21 @@ function stepHandler(M, o, stepKey, input, now) {
     const pack = stateStep(o, 'PACKAGING');
     const byHand = !!(pack && norm(pack.fields.COURIER_TYPE) === 'by hand');
     let transporter = properCase(clean(f.TRANSPORTER, 80));
-    const biltyNo = clean(String(f.BILTY_NO || '').replace(/\s+/g, ' ').trim(), 40);
-    const photos = photosOf('BILTY_PHOTO');
-    if (byHand) { if (!transporter) transporter = 'By Hand'; }
-    else {
-      if (!transporter) fail('"Transporter Name" bharo.');
-      if (!biltyNo) fail('"Bilty Number" bharo.');
-      if (!photos.length) fail('Bilty ki photo daalo.');
+    let biltyNo = clean(String(f.BILTY_NO || '').replace(/\s+/g, ' ').trim(), 40);
+    let photos = photosOf('BILTY_PHOTO');
+    const na = !!input.notApplicable || norm(transporter) === 'not applicable';
+    if (na) {
+      // Bilty nahi aati — sirf tab jab Packing mein "By Hand" chuna ho
+      if (!byHand) fail('"Not Applicable" sirf tab chalega jab Packing mein "By Hand" chuna ho.');
+      transporter = 'Not Applicable'; biltyNo = 'Not Applicable'; photos = [];
+    } else {
+      if (!transporter) fail('"Transporter Name" bharo.' + (byHand ? ' Bilty nahi hai toh "Not Applicable" dabao.' : ''));
+      if (!biltyNo) fail('"Bilty Number" bharo.' + (byHand ? ' Bilty nahi hai toh "Not Applicable" dabao.' : ''));
+      if (!photos.length) fail('Bilty ki photo daalo.' + (byHand ? ' Bilty nahi hai toh "Not Applicable" dabao.' : ''));
     }
     return {
       status: STATUS.DONE, values: { TRANSPORTER: transporter, BILTY_NO: biltyNo },
-      details: (byHand ? 'By Hand' : 'By Courier') + ' | ' + transporter + (biltyNo ? ' | Bilty ' + biltyNo : '') + (photos.length ? ' | ' + photos.length + ' photo' : '') + ' | ORDER COMPLETE',
+      details: (byHand ? 'By Hand' : 'By Courier') + ' | ' + (na ? 'Bilty: Not Applicable' : transporter + (biltyNo ? ' | Bilty ' + biltyNo : '')) + (photos.length ? ' | ' + photos.length + ' photo' : '') + ' | ORDER COMPLETE',
       uploading: photos.length > 0
     };
   }
