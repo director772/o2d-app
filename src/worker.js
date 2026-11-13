@@ -293,8 +293,8 @@ async function importFromSheet(env, force) {
   if (!res || !res.ok) { await setMeta(env, 'lastError', (res && res.error) || 'no response'); return; }
   await setMeta(env, 'checkedAt', Date.now());
   if (res.same) return;
-  await applyState(env, res.state, null);
-  await env.DB.batch([metaStmt(env, 'sheetVer', res.ver || ''), metaStmt(env, 'importedAt', Date.now()), metaStmt(env, 'lastError', '')]);
+  const warn = await applyState(env, res.state, null);
+  await env.DB.batch([metaStmt(env, 'sheetVer', res.ver || ''), metaStmt(env, 'importedAt', Date.now()), metaStmt(env, 'lastError', warn || '')]);
 }
 
 /** Sheet ka data D1 mein — sirf jo badla; jin orders ka save abhi Sheet tak nahi pahuncha unhe mat chhuo */
@@ -335,12 +335,20 @@ async function applyState(env, s, forceOrder) {
     stmts.push(env.DB.prepare('INSERT OR REPLACE INTO orders (id, json, h, pending_job) VALUES (?, ?, ?, 0)').bind(o.orderId, j, h));
     changed = true;
   }
-  Object.keys(have).forEach((id) => {
-    if (!seen[id] && (!have[id].pending_job || id === forceOrder)) { stmts.push(env.DB.prepare('DELETE FROM orders WHERE id = ?').bind(id)); changed = true; }
-  });
+  let warn = '';
+  const gone = Object.keys(have).filter((id) => !seen[id] && (!have[id].pending_job || id === forceOrder));
+  // Suraksha: Sheet mein formula toot jaaye toh ek saath bahut orders "gayab" dikhte hain —
+  // tab app se mat hatao (Sheet theek hote hi sab pehle jaisa). 1-2 order hatana normal hai.
+  const haveN = Object.keys(have).length;
+  if (gone.length > 2 && gone.length * 3 > haveN) {
+    warn = 'Sheet se ' + gone.length + ' order gayab dikhe (formula toota?) — app ne nahi hataye';
+  } else {
+    gone.forEach((id) => { stmts.push(env.DB.prepare('DELETE FROM orders WHERE id = ?').bind(id)); changed = true; });
+  }
 
   if (changed) stmts.push(metaStmt(env, 'dataVer', newVer()));
   for (let i = 0; i < stmts.length; i += 80) await env.DB.batch(stmts.slice(i, i + 80));
+  return warn;
 }
 
 /* ============================================================
