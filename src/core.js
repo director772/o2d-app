@@ -721,6 +721,7 @@ export function createOrder(M, a, p, now) {
   const oneOf = (v, f) => { if ((f.options || []).indexOf(String(v).trim()) < 0) fail(f.header + ': "' + v + '" sahi option nahi hai.'); return String(v).trim(); };
   const customerName = clean(req(p.customerName, F.CUSTOMER_NAME), 100);
   const phone = cleanPhone(p.phone);
+  if (!phone) fail('"Customer Phone" bharna zaroori hai (10 ank).');
   const city = clean(p.city, 60);
   let items = p.item;
   if (typeof items === 'string') items = items ? items.split(',') : [];
