@@ -2288,6 +2288,11 @@ window.O2D = window.O2D || {};
         });
       });
 
+      A.$('#o-phone', view).addEventListener('input', function () {
+        const e = A.$('#o-phone-err', view); if (e) e.remove();
+        this.style.borderColor = '';
+      });
+
       A.$('#o-save', view).onclick = function () {
         const p = {
           customerName: A.$('#o-name', view).value.trim(),
@@ -2303,6 +2308,20 @@ window.O2D = window.O2D || {};
         };
         // Screen pe hi pehli jaanch (server phir se check karta hai)
         if (!p.customerName) return A.toast('Customer ka naam likho.', 'err');
+        // Phone zaroori — khaane ke neeche laal message + wahi khaana khul jaaye
+        const ph = A.$('#o-phone', view);
+        const old = A.$('#o-phone-err', view); if (old) old.remove();
+        ph.style.borderColor = '';
+        const digits = p.phone.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '').replace(/^0(?=\d{10}$)/, '');
+        const phMsg = !digits ? 'Phone number zaroori hai — customer ka 10 ank ka number likho.'
+                    : (digits.length !== 10 ? 'Phone number 10 ank ka hona chahiye (abhi ' + digits.length + ' ank hai).' : '');
+        if (phMsg) {
+          ph.style.borderColor = 'var(--red)';
+          ph.insertAdjacentHTML('afterend', '<div id="o-phone-err" class="small" style="color:var(--red);margin-top:4px;font-weight:600">' + A.esc(phMsg) + '</div>');
+          ph.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          ph.focus();
+          return A.toast(phMsg, 'err');
+        }
         if (!p.customerType) return A.toast('Customer Type chuno.', 'err');
         if (!p.orderType) return A.toast('Order Type chuno.', 'err');
         if (!p.payment) return A.toast('Payment chuno.', 'err');
