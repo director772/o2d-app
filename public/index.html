@@ -3117,13 +3117,14 @@ window.O2D = window.O2D || {};
                 }
                 const g = grade(p.onTimePct);
                 const col = COLS[g.cls];
-                return '<tr><td><b style="font-weight:600">' + A.esc(p.name) + '</b></td>' +
+                return '<tr><td><b style="font-weight:600">' + A.esc(p.name) + '</b>' +
+                    (p.orders ? '<div class="muted small">' + p.orders + ' order bhare' + (p.done > p.orders ? ' · ' + (p.done - p.orders) + ' step' : '') + '</div>' : '') + '</td>' +
                   '<td><span class="pill ' + g.cls + '">' + g.label + '</span></td>' +
                   '<td class="num">' + p.done + '</td>' +
                   '<td class="num">' + p.late + '</td><td class="num" style="color:' + col + '">' + p.onTimePct + '%</td>' +
                   '<td style="width:24%">' + bar(p.onTimePct, 100, col) + '</td></tr>';
               }).join('') + '</tbody></table></div>' +
-              '<p class="muted small" style="margin:10px 0 0">Time pe kaam: 90%+ Excellent · 75–89% Good · 50–74% Bad · 50% se kam Poor. Naam Staff tab se aate hain. Sirf wahi orders gine jaate hain jo FMS sheet mein hain (test order nahi).</p>'
+              '<p class="muted small" style="margin:10px 0 0">Kaam kiya = steps + naye order bhare. Time pe kaam: 90%+ Excellent · 75–89% Good · 50–74% Bad · 50% se kam Poor. Naam Staff tab se aate hain. Sirf wahi orders gine jaate hain jo FMS sheet mein hain (test order nahi).</p>'
             : '<div class="empty" style="padding:20px"><b>Abhi data nahi</b>Steps hone ke baad yahan dikhega.</div>') +
           '</div>';
 

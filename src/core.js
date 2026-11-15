@@ -511,16 +511,18 @@ export function dashboard(M, a, opts, now) {
   C.staff.forEach((s) => { if (s.active) nameByNorm[norm(s.name)] = s.name; });
   const per = {}, reasons = {};
   M.log.forEach((l) => {
-    const isDone = l.kaam === 'Done' || l.kaam.indexOf('Jawab:') === 0;
+    const isOrder = l.kaam === 'Order bana';            // Naya Order bharna bhi kaam hai
+    const isDone = isOrder || l.kaam === 'Done' || l.kaam.indexOf('Jawab:') === 0;
     if (!isDone || !l.t || l.t < P.since || l.t > P.until) return;
     if (!liveIds[l.orderId] || testIds[l.orderId] || /^TEST/i.test(l.details) || String(l.lateReason).indexOf('Test') >= 0) return;
     const name = nameByNorm[norm(l.doneBy)];
     if (!name) return;
-    const p = per[name] || (per[name] = { name, done: 0, late: 0 });
+    const p = per[name] || (per[name] = { name, done: 0, late: 0, orders: 0 });
     p.done++;
+    if (isOrder) p.orders++;
     if (l.late) { p.late++; const r = String(l.lateReason).split(' — ')[0] || 'Pata nahi'; reasons[r] = (reasons[r] || 0) + 1; }
   });
-  C.staff.forEach((s) => { if (s.active && !s.isAdmin && !per[s.name]) per[s.name] = { name: s.name, done: 0, late: 0 }; });
+  C.staff.forEach((s) => { if (s.active && !s.isAdmin && !per[s.name]) per[s.name] = { name: s.name, done: 0, late: 0, orders: 0 }; });
   const staff = Object.values(per).map((p) => { p.onTimePct = p.done ? Math.round(((p.done - p.late) / p.done) * 100) : 0; return p; })
     .sort((x, y) => (!x.done !== !y.done ? (x.done ? -1 : 1) : (x.onTimePct - y.onTimePct || y.done - x.done)));
 
