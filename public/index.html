@@ -1429,7 +1429,122 @@ window.O2D = window.O2D || {};
     A.config = d.config;
     A.staff = d.me;
     A.director = d.me.isAdmin ? d.me : null;
+    setTimeout(function () { A.ghantiCheck(); }, 0);
   }
+
+  /* ---------------- Phone ki ghanti (kaam late → notification) ----------------
+   *  Jin staff ke paas koi kaam (step) hai, unke liye ghanti zaroori:
+   *  band ho toh app aage nahi badhta. Director / PC ke liye sirf yaad dilana.
+   */
+  const GH_KEY = 'o2d_ghanti_v1';        // { ep, t } — server ko kab bataya
+  const DEV_KEY = 'o2d_device_id';
+  let ghBusy = false, ghOrderDone = false;
+
+  function ghSupported() {
+    return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
+  }
+  function ghDevice() {
+    let d = store.get(DEV_KEY);
+    if (!d) { d = A.uid(); store.set(DEV_KEY, d); }
+    return d;
+  }
+  function ghKeyBytes(b64) {
+    const s = b64.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((b64.length + 3) % 4);
+    const bin = atob(s); const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  /** Phone ko register karo (permission mil chuki ho tab) */
+  function ghSubscribe() {
+    return navigator.serviceWorker.register('/sw.js').then(function () { return navigator.serviceWorker.ready; })
+      .then(function (reg) {
+        return reg.pushManager.getSubscription().then(function (sub) {
+          if (sub) return sub;
+          return A.api('pushKey', {}).then(function (k) {
+            return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: ghKeyBytes(k.key) });
+          });
+        });
+      })
+      .then(function (sub) {
+        let last = null; try { last = JSON.parse(store.get(GH_KEY) || 'null'); } catch (e) {}
+        // Server ko sirf tab batao jab naya ho ya 12 ghante ho gaye (Cloudflare kam kharch)
+        if (last && last.ep === sub.endpoint && last.who === A.staff.name && Date.now() - last.t < 12 * 3600000) return;
+        return A.api('pushSave', { sub: sub.toJSON(), dev: ghDevice() }).then(function () {
+          store.set(GH_KEY, JSON.stringify({ ep: sub.endpoint, who: A.staff.name, t: Date.now() }));
+        });
+      });
+  }
+
+  function ghOverlay(kind) {
+    let el = document.getElementById('gh-lock');
+    const must = A.staff && A.staff.needGhanti && !A.staff.isAdmin;
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'gh-lock';
+      el.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.72);display:flex;align-items:center;justify-content:center;padding:16px';
+      document.body.appendChild(el);
+    }
+    let body;
+    if (kind === 'nosupport') {
+      body = '<p>Is phone / browser mein ghanti nahi chal sakti.</p>' +
+        '<p class="small"><b>Android:</b> yeh link <b>Chrome</b> mein kholo.<br><b>iPhone:</b> Safari mein neeche <b>Share</b> → <b>Add to Home Screen</b>, phir Home Screen wale icon se app kholo.</p>';
+    } else if (kind === 'denied') {
+      body = '<p>Is phone pe ghanti <b>band</b> hai. Chalu karo:</p>' +
+        '<p class="small">1. Upar address bar mein <b>🔒 / ⚙ icon</b> dabao<br>2. <b>Permissions → Notifications</b><br>3. <b>Allow</b> chuno<br>4. Neeche <b>Dobara check karo</b> dabao</p>' +
+        '<p class="small muted">App Home Screen se khola hai? Phone ki <b>Settings → Apps → Chrome / O2D → Notifications → On</b>.</p>';
+    } else {
+      body = '<p>Kaam late hone wala ho ya late ho jaaye toh phone pe <b>ghanti</b> bajegi — taaki koi kaam na ruke.</p>' +
+        '<p class="small muted">Agle dabbe mein <b>Allow</b> dabana.</p>';
+    }
+    el.innerHTML = '<div class="panel" style="max-width:420px;width:100%">' +
+      '<h3 style="margin-top:0">🔔 Ghanti chalu karna zaroori hai</h3>' + body +
+      (must ? '<p class="small" style="color:var(--red);font-weight:600">Ghanti chalu kiye bina app nahi chalega.</p>' : '') +
+      '<div class="btn-row">' +
+        (kind === 'ask' ? '<button class="btn btn-main" id="gh-on">Ghanti chalu karo</button>' : '<button class="btn btn-main" id="gh-re">Dobara check karo</button>') +
+        (must ? '' : '<button class="btn btn-ghost" id="gh-later">Baad mein</button>') +
+      '</div></div>';
+    const on = document.getElementById('gh-on');
+    if (on) on.onclick = function () {
+      on.disabled = true; on.textContent = 'Chalu ho rahi hai...';
+      Notification.requestPermission().then(function (p) {
+        if (p !== 'granted') { ghOverlay('denied'); return; }
+        return ghSubscribe().then(function () { ghClose(); A.toast('Ghanti chalu ho gayi 🔔'); })
+          .catch(function (e) { on.disabled = false; on.textContent = 'Ghanti chalu karo'; A.toast('Ghanti chalu nahi hui: ' + e.message, 'err'); });
+      });
+    };
+    const re = document.getElementById('gh-re');
+    if (re) re.onclick = function () { location.reload(); };
+    const later = document.getElementById('gh-later');
+    if (later) later.onclick = function () { A.ghantiSkip = true; ghClose(); };
+  }
+  function ghClose() { const el = document.getElementById('gh-lock'); if (el) el.remove(); }
+
+  A.ghantiCheck = function () {
+    if (!A.staff || !A.token()) { ghClose(); return; }
+    // Notification pe tap → seedha wahi order
+    if (!ghOrderDone) {
+      ghOrderDone = true;
+      try {
+        const q = new URLSearchParams(location.search);
+        const oid = q.get('order');
+        if (oid) { history.replaceState(null, '', location.pathname); setTimeout(function () { A.go('orderDetail', { orderId: oid }); }, 300); }
+      } catch (e) {}
+    }
+    if (!A.staff.needGhanti) { ghClose(); return; }      // is staff ke paas koi step nahi
+    if (ghBusy) return;
+    if (!ghSupported()) { if (!A.staff.isAdmin) ghOverlay('nosupport'); return; }
+    if (Notification.permission === 'granted') {
+      ghClose();
+      ghBusy = true;
+      ghSubscribe().catch(function () {}).then(function () { ghBusy = false; });
+      return;
+    }
+    if (A.staff.isAdmin && A.ghantiSkip) return;
+    ghOverlay(Notification.permission === 'denied' ? 'denied' : 'ask');
+  };
+  // App wapas khola (dusri app se) → dobara jaancho: kisi ne band toh nahi ki
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) A.ghantiCheck(); });
 
   /**
    * fresh = login ke jawab mein aaya data (tab server pe dobara jaane ki zaroorat nahi)
@@ -1709,7 +1824,12 @@ window.O2D = window.O2D || {};
           ? A.staff.name + ' · ' + d.total + ' order pending' + (d.red ? ' — ' + d.red + ' late' : '') + ' · ' + d.at
           : A.staff.name + ' · abhi koi kaam pending nahi · ' + d.at;
 
-        let h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">';
+        let h = '';
+        if (d.ghantiBand && d.ghantiBand.length) {
+          h += '<div class="note err" style="margin-bottom:12px">🔕 <b>In staff ki ghanti band hai:</b> ' + A.esc(d.ghantiBand.join(', ')) +
+               '<br><span class="small">Kaam late hone pe inke phone pe ghanti nahi bajegi. Inke phone pe app kholo aur "Ghanti chalu karo" dabwao.</span></div>';
+        }
+        h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">';
         if (A.screens.newOrder && d.canNewOrder) {
           h += '<button type="button" class="kpi" data-go="newOrder" style="text-align:left;cursor:pointer;width:100%;font:inherit;' +
                'background:var(--brand);color:#fff;border-color:var(--brand)">' +

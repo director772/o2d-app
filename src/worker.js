@@ -11,6 +11,7 @@
  *   app mein saaf message (alerts) + order Sheet jaisa wapas.
  */
 import * as core from './core.js';
+import { vapidKeys, sendPush } from './push.js';
 
 const NATIVE_WRITES = {
   submitStep: core.submitStep, createOrder: core.createOrder, billIssue: core.billIssue,
@@ -36,6 +37,7 @@ async function ensureTables(env) {
     env.DB.prepare('CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, created INTEGER, actor TEXT, action TEXT, token TEXT, order_id TEXT, want_id TEXT, label TEXT, status TEXT, tries INTEGER DEFAULT 0, error TEXT, done_at INTEGER)'),
     env.DB.prepare('CREATE TABLE IF NOT EXISTS job_parts (job_id INTEGER, part INTEGER, data TEXT, PRIMARY KEY (job_id, part))'),
     env.DB.prepare('CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT, created INTEGER, json TEXT, seen INTEGER DEFAULT 0)'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, actor TEXT, json TEXT, at INTEGER, ok_at INTEGER)'),
     env.DB.prepare('CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, url TEXT, size INTEGER, mime TEXT, th TEXT, at INTEGER)'),
     env.DB.prepare('DROP TABLE IF EXISTS screens'),
     env.DB.prepare('DROP TABLE IF EXISTS cache')
@@ -55,6 +57,7 @@ export default {
   },
   async scheduled(event, env, ctx) {
     await ensureTables(env);
+    ctx.waitUntil(ringCron(env).catch(() => {}));   // phone ki ghanti — saath-saath
     await processJobs(env);
     await importFromSheet(env, false);
   }
@@ -107,9 +110,21 @@ async function handleApi(request, env, ctx) {
     const reply = (data) => json(Object.assign({ ok: true, data }, alerts.length ? { alerts } : {}));
 
     switch (action) {
-      case 'boot': return reply({ config: core.uiConfig(C, a, now), me: core.meFor(C, a), home: core.homeFor(M, a, now) });
+      case 'boot': return reply({ config: core.uiConfig(C, a, now), me: core.meFor(C, a), home: await withGhanti(env, C, a, core.homeFor(M, a, now)) });
       case 'me': return reply({ staff: core.meFor(C, a) });
-      case 'home': return reply(core.homeFor(M, a, now));
+      case 'home': return reply(await withGhanti(env, C, a, core.homeFor(M, a, now)));
+      case 'pushKey': return reply({ key: (await vapidKeys(env)).pub });
+      case 'pushSave': {
+        const sub = payload.sub || {};
+        if (!sub.endpoint || !/^https:\/\//.test(sub.endpoint) || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) throw new core.AppError('Ghanti ki jaankari adhuri hai.');
+        await env.DB.batch([
+          env.DB.prepare('DELETE FROM push_subs WHERE actor = ? AND endpoint <> ? AND json LIKE ?').bind(a.name, sub.endpoint, '%"dev":"' + String(payload.dev || '').slice(0, 40) + '"%'),
+          env.DB.prepare('INSERT OR REPLACE INTO push_subs (endpoint, actor, json, at, ok_at) VALUES (?, ?, ?, ?, ?)')
+            .bind(sub.endpoint, a.name, JSON.stringify({ endpoint: sub.endpoint, keys: sub.keys, dev: String(payload.dev || '').slice(0, 40) }), now, now)
+        ]);
+        GHANTI = null;
+        return reply({ ok: true });
+      }
       case 'stepList': return reply(core.stepList(M, a, payload.step, now));
       case 'orders': return reply(core.myOrders(M, viewActor(C), payload.days || 30, now));
       case 'search': return reply(core.searchOrders(M, payload.query, now));
@@ -427,4 +442,70 @@ async function sha(s) {
 
 function json(obj, st) {
   return new Response(JSON.stringify(obj), { status: st || 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+
+/* ============================================================
+ *  PHONE KI GHANTI (push.js)
+ *  yellow → har minute 1 baar · laal → har 20 second · sirf office time
+ * ============================================================ */
+
+let GHANTI = null;   // { at, names } — kin staff ka phone register hai (60s cache)
+
+async function ghantiOnNames(env) {
+  if (GHANTI && Date.now() - GHANTI.at < 60000) return GHANTI.names;
+  const r = await env.DB.prepare('SELECT DISTINCT actor FROM push_subs').all();
+  GHANTI = { at: Date.now(), names: (r.results || []).map((x) => x.actor) };
+  return GHANTI.names;
+}
+
+/** Director / PC ki Home pe: kis staff ki ghanti band hai */
+async function withGhanti(env, C, a, home) {
+  if (!a.isAdmin) return home;
+  try {
+    const on = await ghantiOnNames(env);
+    home.ghantiBand = core.ringStaffNames(C).filter((n) => on.indexOf(n) < 0 && C.staff.some((s) => s.name === n && !s.isAdmin));
+  } catch (e) { /* chhodo */ }
+  return home;
+}
+
+const RING_SUBJECT = 'https://o2d-app.reports-8fd.workers.dev';
+
+async function ringOnce(env, onlyRed) {
+  const M = await loadModel(env);
+  if (!M) return;
+  const now = Date.now();
+  if (!core.inOfficeNow(M.C, now)) return;
+  const plan = core.ringPlan(M, now);
+  const names = Object.keys(plan).filter((n) => !onlyRed || plan[n].red);
+  if (!names.length) return;
+  const subs = ((await env.DB.prepare('SELECT endpoint, actor, json FROM push_subs').all()).results || [])
+    .filter((r) => names.indexOf(r.actor) >= 0);
+  const dead = [];
+  await Promise.all(subs.map(async (r) => {
+    const p = plan[r.actor];
+    const total = p.red + p.yellow;
+    const data = {
+      title: p.red ? '⚠ ' + p.red + ' kaam LATE hai' + (p.red > 1 ? 'n' : '') + '!' : '⏰ ' + p.yellow + ' kaam ka time khatam hone wala hai',
+      body: p.lines.slice(0, 3).map((l) => l.text).join('\n') + (total > 3 ? '\n+ ' + (total - 3) + ' aur' : ''),
+      red: !!p.red,
+      url: '/?order=' + encodeURIComponent(p.orderId || ''),
+      at: now
+    };
+    try {
+      const st = await sendPush(env, JSON.parse(r.json), data, RING_SUBJECT);
+      if (st === 404 || st === 410) dead.push(r.endpoint);
+    } catch (e) { /* agli baar */ }
+  }));
+  if (dead.length) {
+    await env.DB.batch(dead.map((e) => env.DB.prepare('DELETE FROM push_subs WHERE endpoint = ?').bind(e)));
+    GHANTI = null;
+  }
+}
+
+async function ringCron(env) {
+  await ringOnce(env, false);                    // 0 sec: yellow + laal
+  for (let i = 0; i < 2; i++) {                  // 20, 40 sec: sirf laal
+    await new Promise((r) => setTimeout(r, 20000));
+    await ringOnce(env, true);
+  }
 }

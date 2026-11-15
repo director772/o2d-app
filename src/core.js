@@ -269,6 +269,52 @@ export function myWork(M, a, now) {
   return { total, red, yellow, groups, at: fmtDateTime(now) };
 }
 
+/* ---------------- Phone ki ghanti ---------------- */
+
+/** Abhi office ka time hai? (chhutti / band hone ke baad ghanti nahi) */
+export function inOfficeNow(C, now) {
+  const key = dayKey(now);
+  if (!isWorkingDayKey(C, key)) return false;
+  return now >= makeDate(key, C.office.openTime) && now < makeDate(key, C.office.closeTime);
+}
+
+/** Ghanti kisko: jis staff ke paas yeh kaam hai; koi nahi → Director / PC */
+export function ringTargets(C, stepKey) {
+  const staff = C.staff.filter((s) => s.active && !s.isAdmin && (s.steps || []).indexOf(stepKey) >= 0).map((s) => s.name);
+  if (staff.length) return staff;
+  return C.staff.filter((s) => s.active && s.isAdmin).map((s) => s.name);
+}
+
+/** Jin staff ko ghanti milni chahiye (unka ghanti chalu hona zaroori) */
+export function ringStaffNames(C) {
+  const out = {};
+  nonEntry(C).forEach((st) => ringTargets(C, st.key).forEach((n) => { out[n] = true; }));
+  return Object.keys(out);
+}
+
+/**
+ * Har staff ke liye: kitne kaam yellow / laal + ek line ka message.
+ * Wapas: { [naam]: { red, yellow, lines:[...] } }  (sirf jinka kuch yellow / laal hai)
+ */
+export function ringPlan(M, now) {
+  const C = M.C;
+  const per = {};
+  M.orders.forEach((o) => {
+    if (o.cancelled || o.isTest || o.complete || !o.currentStep) return;
+    const sig = signal(M, o, now);
+    if (sig.color !== 'red' && sig.color !== 'yellow') return;
+    const def = stepDef(C, o.currentStep);
+    ringTargets(C, o.currentStep).forEach((n) => {
+      const p = per[n] || (per[n] = { red: 0, yellow: 0, lines: [], orderId: '' });
+      if (sig.color === 'red') p.red++; else p.yellow++;
+      p.lines.push({ red: sig.color === 'red', text: o.orderId + ' · ' + def.label + ' — ' + sig.text });
+      if (!p.orderId || sig.color === 'red') p.orderId = p.orderId && p.red > 1 ? p.orderId : o.orderId;
+    });
+  });
+  Object.keys(per).forEach((n) => { per[n].lines.sort((x, y) => (y.red ? 1 : 0) - (x.red ? 1 : 0)); });
+  return per;
+}
+
 export function homeFor(M, a, now) {
   const w = myWork(M, a, now);
   return {
@@ -292,7 +338,8 @@ export function stepList(M, a, step, now) {
 }
 
 export function meFor(C, a) {
-  return { name: a.name, role: a.role, steps: a.steps, stepLabels: (a.steps || []).map((k) => stepDef(C, k).label), isAdmin: !!a.isAdmin, isDirector: !!a.isDirector, canEdit: !!(a.isDirector || a.canEdit) };
+  return { name: a.name, role: a.role, steps: a.steps, stepLabels: (a.steps || []).map((k) => stepDef(C, k).label), isAdmin: !!a.isAdmin, isDirector: !!a.isDirector, canEdit: !!(a.isDirector || a.canEdit),
+           needGhanti: ringStaffNames(C).indexOf(a.name) >= 0 };
 }
 
 export function uiConfig(C, a, now) {
