@@ -161,7 +161,7 @@ async function handleApi(request, env, ctx) {
 
     // ---- Baaki (staff page, PIN, video) → seedha Apps Script ----
     const res = await forward(env, body);
-    if (res && res.ok && ['saveStaff', 'setPin', 'newLink', 'changePin'].indexOf(action) >= 0) ctx.waitUntil(importFromSheet(env, true).catch(() => {}));
+    if (res && res.ok && ['saveStaff', 'setPin', 'newLink', 'changePin', 'saveTimeSettings'].indexOf(action) >= 0) ctx.waitUntil(importFromSheet(env, true).catch(() => {}));
     if (action === 'videoStart' && res && res.ok && res.data && res.data.sessionUrl) {
       await env.DB.prepare('INSERT OR REPLACE INTO uploads (id, url, size, mime, th, at) VALUES (?, ?, ?, ?, ?, ?)')
         .bind(res.data.uploadId, res.data.sessionUrl, Number(payload.size) || 0, String(payload.mimeType || 'video/mp4'), await sha(token), now).run();

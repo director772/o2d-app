@@ -181,7 +181,7 @@ export function plannedFor(C, o, key) {
     const mk = stock && stock.fields && stock.fields.MAAL_KAB_AAYEGA;
     const base = mk && mk.d ? mk.d : prevActual;
     let k = dayKey(base);
-    for (let i = 0; i < Number(m[3]); i++) k = nextDayKey(k);
+    for (let i = 0; i < Number(m[3]); i++) { k = nextDayKey(k); while (!isWorkingDayKey(C, k)) k = nextDayKey(k); }   // Sheet ke WORKDAY.INTL jaisa
     return makeDate(k, p2(m[1]) + ':' + m[2]);
   }
   return null;

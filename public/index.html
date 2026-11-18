@@ -1614,12 +1614,15 @@ window.O2D = window.O2D || {};
         '</div>' +
         '<div class="panel">' +
           (A.screens.staff && s.isDirector ? '<button class="btn btn-ghost btn-block" id="m-staff">Staff sambhalo</button><div style="height:10px"></div>' : '') +
+          (A.screens.timeSettings && s.isDirector ? '<button class="btn btn-ghost btn-block" id="m-time">Kaam ka time (deadline / chhutti)</button><div style="height:10px"></div>' : '') +
           '<button class="btn btn-ghost btn-block" id="m-pin">Apna PIN badlo</button>' +
           '<div style="height:10px"></div>' +
           '<button class="btn btn-danger btn-block" id="m-out">Logout</button>' +
         '</div>';
       const st = A.$('#m-staff');
       if (st) st.onclick = function () { A.go('staff'); };
+      const tm = A.$('#m-time');
+      if (tm) tm.onclick = function () { A.go('timeSettings'); };
       A.$('#m-pin').onclick = openPinChange;
       A.$('#m-out').onclick = function () { A.showLogin('Logout ho gaye.'); };
     }
@@ -3332,6 +3335,140 @@ window.O2D = window.O2D || {};
                 .catch(function () {});
             };
           });
+      }
+    }
+  };
+
+})(window.O2D);
+</script>
+
+  <!--
+  ============================================================
+   Screen_TimeSettings.html  —  Kaam ka time (sirf Director)
+  ============================================================
+   Mera Account → "Kaam ka time"
+   - Har step ka time (ghante / Maal Ready: kitne baje tak)
+   - Office khulne / band hone ka time
+   - Hafte mein chhutti ke din
+   - Tyohar / chhutti ki tareekhein
+   Save → Sheet (FMS row 5, Config, Holidays) → sab deadline usi hisaab se
+  ============================================================
+-->
+<script>
+(function (A) {
+  'use strict';
+
+  const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+  A.screens.timeSettings = {
+    render: function (view) {
+      if (!A.staff.isDirector) {
+        view.innerHTML = '<div class="note err">Yeh page sirf Director ke liye hai.</div>';
+        return;
+      }
+      view.innerHTML = A.pageHead('Kaam ka time', 'Load ho raha hai...') + '<div id="ts-body"></div>';
+      let data = null;
+
+      A.call('timeSettings', {}, 'Time la rahe hain...')
+        .then(function (d) { data = d; draw(); })
+        .catch(function (e) { A.$('#ts-body', view).innerHTML = '<div class="note err">' + A.esc(e.message) + '</div>'; });
+
+      function dayOpts(sel) {
+        let h = '';
+        for (let i = 0; i <= 7; i++) h += '<option value="' + i + '"' + (i === sel ? ' selected' : '') + '>' + (i === 0 ? 'Usi din' : i + ' kaam ke din baad') + '</option>';
+        return h;
+      }
+
+      function draw() {
+        A.$('.screen-sub', view).textContent = 'Har kaam ki deadline yahan se tay hoti hai';
+        let h = '<div class="panel"><h3 style="margin-top:0">Har kaam ka time</h3>' +
+          '<p class="muted small" style="margin-top:0">Ghante = office time ke andar kitne ghante mein kaam ho jaana chahiye (pichhla kaam hone ke baad se).</p>';
+        data.steps.forEach(function (s, i) {
+          if (s.type === 'hours') {
+            h += '<div class="field"><label>' + A.esc(s.label) + '</label>' +
+              '<div class="row" style="gap:8px;align-items:center"><input type="number" min="0.25" max="200" step="0.25" data-h="' + i + '" value="' + (s.hours == null ? '' : s.hours) + '" style="max-width:120px"><span class="muted">ghante</span></div></div>';
+          } else {
+            h += '<div class="field"><label>' + A.esc(s.label) + '</label>' +
+              '<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><input type="time" data-t="' + i + '" value="' + A.esc(s.time) + '" style="max-width:140px">' +
+              '<span class="muted">tak,</span><select data-d="' + i + '" style="max-width:200px">' + dayOpts(s.days) + '</select></div>' +
+              '<div class="hint">"Maal Kab Aayega" wali tareekh se gina jaata hai.</div></div>';
+          }
+        });
+        h += '</div>';
+
+        h += '<div class="panel"><h3 style="margin-top:0">Office ka time</h3>' +
+          '<div class="row" style="gap:12px;flex-wrap:wrap">' +
+            '<div class="field" style="flex:1;min-width:140px"><label>Khulta hai</label><input type="time" id="ts-open" value="' + A.esc(data.open) + '"></div>' +
+            '<div class="field" style="flex:1;min-width:140px"><label>Band hota hai</label><input type="time" id="ts-close" value="' + A.esc(data.close) + '"></div>' +
+          '</div>' +
+          '<label style="font-weight:600;display:block;margin:6px 0">Hafte mein chhutti (tick = chhutti)</label>' +
+          '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+            DAYS.map(function (d, i) {
+              return '<label class="row" style="gap:6px;cursor:pointer;border:1px solid var(--border);border-radius:8px;padding:6px 10px">' +
+                '<input type="checkbox" data-off="' + i + '"' + (data.offDays[i] ? ' checked' : '') + ' style="width:18px;height:18px">' + d + '</label>';
+            }).join('') +
+          '</div></div>';
+
+        h += '<div class="panel"><h3 style="margin-top:0">Tyohar / chhutti ki tareekh</h3>' +
+          '<p class="muted small" style="margin-top:0">In din office band — deadline aage khisak jaati hai, ghanti nahi bajti.</p>' +
+          '<div id="ts-hol"></div>' +
+          '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">' +
+            '<input type="date" id="ts-hd" style="max-width:170px">' +
+            '<input type="text" id="ts-hn" placeholder="Jaise: Diwali" style="flex:1;min-width:140px">' +
+            '<button class="btn btn-ghost" id="ts-hadd">+ Jodo</button>' +
+          '</div></div>';
+
+        h += '<div class="note" style="margin-bottom:12px">Naya time sirf <b>baaki aur naye</b> orders pe lagega. Jo kaam ho chuka hai uski deadline nahi badlegi.</div>' +
+          '<button class="btn btn-main btn-block" id="ts-save">Save karo</button>';
+
+        A.$('#ts-body', view).innerHTML = h;
+        drawHol();
+        A.$('#ts-hadd', view).onclick = function () {
+          const d = A.$('#ts-hd', view).value, n = A.$('#ts-hn', view).value.trim();
+          if (!d) return A.toast('Tareekh chuno.', 'err');
+          if (data.holidays.some(function (x) { return x.date === d; })) return A.toast('Yeh tareekh pehle se hai.', 'err');
+          data.holidays.push({ date: d, name: n });
+          data.holidays.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+          A.$('#ts-hd', view).value = ''; A.$('#ts-hn', view).value = '';
+          drawHol();
+        };
+        A.$('#ts-save', view).onclick = save;
+      }
+
+      function fmt(d) { const p = d.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
+
+      function drawHol() {
+        const box = A.$('#ts-hol', view);
+        box.innerHTML = data.holidays.length
+          ? data.holidays.map(function (x, i) {
+              return '<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--border)"><span><b>' + fmt(x.date) + '</b> ' + A.esc(x.name || '') + '</span>' +
+                '<button class="btn btn-ghost btn-sm" data-hdel="' + i + '">Hatao</button></div>';
+            }).join('')
+          : '<div class="muted small">Koi tareekh nahi.</div>';
+        A.$$('[data-hdel]', box).forEach(function (b) {
+          b.onclick = function () { data.holidays.splice(+b.getAttribute('data-hdel'), 1); drawHol(); };
+        });
+      }
+
+      function save() {
+        const steps = data.steps.map(function (s, i) {
+          if (s.type === 'hours') return { key: s.key, hours: Number(A.$('[data-h="' + i + '"]', view).value) };
+          return { key: s.key, time: A.$('[data-t="' + i + '"]', view).value, days: Number(A.$('[data-d="' + i + '"]', view).value) };
+        });
+        for (let i = 0; i < steps.length; i++) {
+          if (data.steps[i].type === 'hours' && !(steps[i].hours > 0)) return A.toast('"' + data.steps[i].label + '" ke ghante bharo.', 'err');
+          if (data.steps[i].type === 'fixed' && !steps[i].time) return A.toast('"' + data.steps[i].label + '" ka time bharo.', 'err');
+        }
+        const offDays = DAYS.map(function (d, i) { return A.$('[data-off="' + i + '"]', view).checked; });
+        if (offDays.every(Boolean)) return A.toast('Kam se kam ek din kaam ka hona chahiye.', 'err');
+        const payload = { steps: steps, open: A.$('#ts-open', view).value, close: A.$('#ts-close', view).value, offDays: offDays, holidays: data.holidays };
+        A.call('saveTimeSettings', payload, 'Save ho raha hai...')
+          .then(function (r) {
+            A.toast(r && r.message ? r.message : 'Save ho gaya.');
+            try { A.cacheStale(); } catch (e) {}
+            A.go('timeSettings');
+          })
+          .catch(function (e) { A.toast(e.message, 'err'); });
       }
     }
   };
