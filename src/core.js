@@ -276,6 +276,18 @@ function nameTokens(s) {
   return String(s || '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter((t) => t.length >= 2 && !NAME_SKIP[t]);
 }
 
+/** Shehar ka naam: poora, shuruaat, ya chhota roop (Skb = Sikohabad, Snr = Saharanpur) */
+function sameCity(c, t) {
+  if (c === t) return true;
+  if (c.length >= 3 && (t.indexOf(c) === 0 || c.indexOf(t) === 0)) return true;
+  if (c.length >= 2 && c.length < t.length && c[0] === t[0]) {
+    let j = 0;
+    for (let i = 0; i < t.length && j < c.length; i++) if (t[i] === c[j]) j++;
+    return j === c.length;
+  }
+  return false;
+}
+
 /** Bill numbers jo kisi order pe lage hain (cancel wale chhod ke) */
 export function usedBillKeys(M) {
   const out = new Set();
@@ -303,7 +315,7 @@ export function matchBusyBill(M, bill) {
     if (!nm.length || !nm.every((t) => party.indexOf(t) >= 0)) return false;
     const city = nameTokens(o.city);
     const extra = party.filter((t) => nm.indexOf(t) < 0);
-    if (city.length && !city.every((t) => party.indexOf(t) >= 0) && extra.length) return false;
+    if (city.length && extra.length && !city.every((c) => extra.some((t) => sameCity(c, t)))) return false;
     return true;
   });
   return hits.length === 1 ? hits[0] : null;
