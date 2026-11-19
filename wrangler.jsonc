@@ -8,7 +8,8 @@
     "APPS_URL": "https://script.google.com/macros/s/AKfycbzSPwJDqeSKER6vSozAnZ4qj0Le0dLeTOJzY7YSac3DRIXGrZCxMAmxcYZkb_gYDKA/exec"
   },
   "d1_databases": [
-    { "binding": "DB", "database_name": "o2d-cache", "database_id": "2a69e998-08c5-4e58-88e5-6193d9dc64e3" }
+    { "binding": "DB", "database_name": "o2d-cache", "database_id": "2a69e998-08c5-4e58-88e5-6193d9dc64e3" },
+    { "binding": "BUSY", "database_name": "busy-live-db", "database_id": "04edf04b-2b33-4677-8593-946b506d72fc" }
   ],
   "observability": { "enabled": true }
 }

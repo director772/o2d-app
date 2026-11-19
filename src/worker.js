@@ -12,13 +12,14 @@
  */
 import * as core from './core.js';
 import { vapidKeys, sendPush } from './push.js';
+import * as busy from './busy.js';
 
 const NATIVE_WRITES = {
   submitStep: core.submitStep, createOrder: core.createOrder, billIssue: core.billIssue,
   cancelOrder: core.cancelOrder, editOrder: core.editOrder, editStep: core.editStep, undoStep: core.undoStep
 };
 const WRITE_LABEL = {
-  submitStep: 'Step save', createOrder: 'Naya order', billIssue: 'Galti mili', cancelOrder: 'Order cancel',
+  submitStep: 'Step save', busyInvoice: 'Bill (Busy se)', createOrder: 'Naya order', billIssue: 'Galti mili', cancelOrder: 'Order cancel',
   editOrder: 'Order badla', editStep: 'Step badla', undoStep: 'Step wapas khola', addOrderPhotos: 'Parchi photo'
 };
 const PART = 900000;                 // bada payload (photo) D1 mein tukdon mein
@@ -42,6 +43,7 @@ async function ensureTables(env) {
     env.DB.prepare('DROP TABLE IF EXISTS screens'),
     env.DB.prepare('DROP TABLE IF EXISTS cache')
   ]);
+  await busy.ensureBusyTables(env);
   tablesReady = true;
 }
 
@@ -58,6 +60,7 @@ export default {
   async scheduled(event, env, ctx) {
     await ensureTables(env);
     ctx.waitUntil(ringCron(env).catch(() => {}));   // phone ki ghanti — saath-saath
+    try { await busyCron(env); } catch (e) { await setMeta(env, 'busyError', String(e && e.message || e)).catch(() => {}); }
     await processJobs(env);
     await importFromSheet(env, false);
   }
@@ -129,6 +132,7 @@ async function handleApi(request, env, ctx) {
       case 'orders': return reply(core.myOrders(M, viewActor(C), payload.days || 30, now));
       case 'search': return reply(core.searchOrders(M, payload.query, now));
       case 'orderDetail': return reply(core.orderDetail(M, payload.orderId, a, now));
+      case 'busyBills': return reply({ bills: await busy.recentFreeBills(env, core.usedBillKeys(M)) });
       case 'details': {
         const out = {};
         (payload.orderIds || []).slice(0, 30).forEach((id) => { try { out[id] = core.orderDetail(M, id, a, now); } catch (e) { /* chhodo */ } });
@@ -140,11 +144,22 @@ async function handleApi(request, env, ctx) {
 
     if (NATIVE_WRITES[action]) {
       const p = JSON.parse(JSON.stringify(payload));
+      // Bill Banao: bill number Busy mein mila → photo nahi chahiye, PDF apne aap
+      let bb = null, jobAction = action, jobPayload = payload;
+      if (action === 'submitStep' && p.stepKey === 'INVOICE' && p.input && p.input.fields) {
+        bb = await busy.findBill(env, p.input.fields.BILL_NUMBER).catch(() => null);
+        if (bb) p.input.busyBill = { no: bb.no, at: bb.at };
+      }
       let out;
       try { out = NATIVE_WRITES[action](M, a, p, now); }
       catch (e) { if (!(e instanceof core.AppError)) MEM = null; throw e; }
       if (!out.order) return reply(out.result);                // late reason / kuch badla nahi → kuch save nahi
-      await saveWrite(env, M, a, action, token, payload, out);
+      if (bb) {
+        jobAction = 'busyInvoice';
+        jobPayload = await busyJobPayload(env, bb, p.orderId, p.input);
+        await env.DB.prepare('UPDATE busy_bills SET order_id = ? WHERE vch = ?').bind(p.orderId, bb.vch).run();
+      }
+      await saveWrite(env, M, a, jobAction, token, jobPayload, out);
       ctx.waitUntil(processJobs(env));
       return reply(out.result);
     }
@@ -431,7 +446,8 @@ async function status(env) {
   const t = async (k) => { const v = await g(k); return v && Number(v) ? new Date(Number(v)).toISOString() : null; };
   return {
     orders: cnt ? cnt.n : 0, sheetMeinJaneBaaki: pend ? pend.n : 0, failJobs: failed ? failed.n : 0,
-    sheetSeLiya: await t('importedAt'), lastCheck: await t('checkedAt'), error: (await g('lastError')) || ''
+    sheetSeLiya: await t('importedAt'), lastCheck: await t('checkedAt'), error: (await g('lastError')) || '',
+    busy: env.BUSY ? { seq: await g('busySeq'), bills: ((await env.DB.prepare('SELECT COUNT(*) AS n FROM busy_bills').first()) || {}).n, juda: ((await env.DB.prepare('SELECT COUNT(*) AS n FROM busy_bills WHERE order_id IS NOT NULL').first()) || {}).n, error: (await g('busyError')) || '' } : 'jude nahi'
   };
 }
 
@@ -508,4 +524,49 @@ async function ringCron(env) {
     await new Promise((r) => setTimeout(r, 20000));
     await ringOnce(env, true);
   }
+}
+
+/* ============================================================
+ *  BUSY → Bill Banao (busy.js)
+ * ============================================================ */
+
+async function busyJobPayload(env, bb, orderId, input) {
+  let items = [];
+  try { items = await busy.billItems(env, bb.fy, bb.vch); } catch (e) { /* PDF bina items ke */ }
+  return {
+    stepKey: 'INVOICE', orderId,
+    input: { doneBy: input.doneBy || '', lateReason: input.lateReason || '', lateNote: input.lateNote || '', busyAuto: !!input.busyAuto },
+    busy: { no: bb.no, at: bb.at, party: bb.party, total: bb.total, items }
+  };
+}
+
+/** Har minute: Busy ke naye bill → naam se pakka order mile toh Bill Banao apne aap */
+async function busyCron(env) {
+  if (!env.BUSY) return;
+  const bills = await busy.syncBusy(env, getMeta, setMeta);
+  if (!bills.length) return;
+  const M = await loadModel(env);
+  if (!M) return;
+  const used = core.usedBillKeys(M);
+  const now = Date.now();
+  let any = false;
+  for (const b of bills) {
+    if (busy.isCash(b) || used.has(b.nkey)) continue;
+    const row = await env.DB.prepare('SELECT order_id, deleted FROM busy_bills WHERE vch = ?').bind(b.vch).first();
+    if (!row || row.order_id || row.deleted) continue;
+    const o = core.matchBusyBill(M, b);
+    if (!o) continue;
+    const input = { fields: { BILL_NUMBER: b.no }, busyBill: { no: b.no, at: b.at }, busyAuto: true };
+    let out;
+    try { out = core.submitStep(M, core.BUSY_ACTOR, { stepKey: 'INVOICE', orderId: o.orderId, input }, now); }
+    catch (e) { continue; }                                   // jaise bill number pehle se laga — chhodo, staff dekhega
+    if (!out.order) continue;
+    const full = Object.assign({}, b, { fy: b.fy });
+    const payload = await busyJobPayload(env, full, o.orderId, input);
+    await env.DB.prepare('UPDATE busy_bills SET order_id = ? WHERE vch = ?').bind(o.orderId, b.vch).run();
+    await saveWrite(env, M, core.BUSY_ACTOR, 'busyInvoice', '', payload, out);
+    used.add(b.nkey);
+    any = true;
+  }
+  if (any) await processJobs(env);
 }

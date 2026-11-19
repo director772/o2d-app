@@ -269,6 +269,49 @@ export function myWork(M, a, now) {
   return { total, red, yellow, groups, at: fmtDateTime(now) };
 }
 
+/* ---------------- Busy ka bill → order ---------------- */
+
+const NAME_SKIP = { ji: 1, and: 1, the: 1, ms: 1, mr: 1, sh: 1, shri: 1 };
+function nameTokens(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter((t) => t.length >= 2 && !NAME_SKIP[t]);
+}
+
+/** Bill numbers jo kisi order pe lage hain (cancel wale chhod ke) */
+export function usedBillKeys(M) {
+  const out = new Set();
+  M.orders.forEach((o) => {
+    if (o.cancelled) return;
+    const b = stateStep(o, 'INVOICE');
+    const k = b && b.fields && b.fields.BILL_NUMBER ? String(b.fields.BILL_NUMBER).toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
+    if (k) out.add(k);
+  });
+  return out;
+}
+
+/**
+ * Busy party ke naam se — Bill Banao pe ruka hua EK hi order pakka mile tabhi.
+ * Order ke naam ke saare shabd party ke naam mein hon; shehar likha ho toh woh bhi
+ * (ya party ke naam mein naam ke alawa koi aur shabd na ho). Do order milein → kuch nahi (staff jodega).
+ */
+export function matchBusyBill(M, bill) {
+  const party = nameTokens(bill.party);
+  if (!party.length) return null;
+  const hits = M.orders.filter((o) => {
+    if (o.cancelled || o.isTest || o.currentStep !== 'INVOICE') return false;
+    if (bill.at && o.createdAt && bill.at < o.createdAt - 86400000) return false;   // order se 1 din pehle ka bill nahi
+    const nm = nameTokens(o.customerName);
+    if (!nm.length || !nm.every((t) => party.indexOf(t) >= 0)) return false;
+    const city = nameTokens(o.city);
+    const extra = party.filter((t) => nm.indexOf(t) < 0);
+    if (city.length && !city.every((t) => party.indexOf(t) >= 0) && extra.length) return false;
+    return true;
+  });
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/** Busy ka "system" — apne aap jodne wala */
+export const BUSY_ACTOR = { name: 'Busy (apne aap)', role: 'System', steps: [], isAdmin: true, isDirector: false };
+
 /* ---------------- Phone ki ghanti ---------------- */
 
 /** Abhi office ka time hai? (chhutti / band hone ke baad ghanti nahi) */
@@ -653,8 +696,10 @@ function stepHandler(M, o, stepKey, input, now) {
     const key = billKey(billNo);
     const clash = M.orders.find((x) => x.orderId !== o.orderId && !x.cancelled && billKey((stateStep(x, 'INVOICE') || { fields: {} }).fields.BILL_NUMBER) === key);
     if (clash) fail('Bill Number "' + billNo + '" pehle se order ' + clash.orderId + ' (' + shown(clash.customerName) + ') pe laga hai. Sahi number daalo — alag series ho toh series ke saath likho (jaise L/' + billNo + ').');
+    // Busy mein yeh bill mila → photo nahi chahiye, PDF Sheet wala code khud banata hai
+    if (input.busyBill) return { status: STATUS.DONE, values: { BILL_NUMBER: billNo }, details: 'Bill No. ' + billNo + ' | Busy se (PDF apne aap)' + (input.busyAuto ? ' | apne aap juda' : ''), uploading: true };
     const photos = photosOf('BILL_PHOTO');
-    if (!photos.length) fail('Bill ki photo daalo.');
+    if (!photos.length) fail('Bill ki photo daalo — ya Busy mein bill save karke 1 minute ruko, phir bill number se apne aap ho jaayega.');
     return { status: STATUS.DONE, values: { BILL_NUMBER: billNo }, details: 'Bill No. ' + billNo + ' | ' + photos.length + ' photo', uploading: true };
   }
   if (stepKey === 'BILL_CHECK') {
@@ -722,11 +767,14 @@ export function submitStep(M, a, p, now) {
   const who = resolveDoneBy(C, input, a, stepKey);
   const pk = prevStepKey(C, stepKey);
   const prevDoneAt = pk ? stateStep(o, pk).actual : o.createdAt;
-  const doneAt = resolveDoneAt(input, a, prevDoneAt, now);
+  let doneAt = resolveDoneAt(input, a, prevDoneAt, now);
+  // Busy ka bill: kaam usi waqt hua jab Busy mein bill bana (pichhle kaam se pehle nahi, abhi ke baad nahi)
+  if (input.busyBill && Number(input.busyBill.at)) doneAt = Math.min(now, Math.max(prevDoneAt || 0, Number(input.busyBill.at)));
   const st = stateStep(o, stepKey);
   const late = isLate(st.planned, doneAt);
   let lateReason = '';
-  if (late) {
+  if (late && input.busyAuto) lateReason = 'Busy mein bill deadline ke baad bana';
+  else if (late) {
     lateReason = checkLateReason(C, input);
     if (!lateReason) {
       return { result: { needLateReason: true, planned: fmtDateTime(st.planned), message: def.label + ' ki deadline ' + fmtDateTime(st.planned) + ' thi. Late kyun hua? Reason chuno.', reasons: C.lateReasons } };

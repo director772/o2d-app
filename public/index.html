@@ -2129,7 +2129,7 @@ window.O2D = window.O2D || {};
              f.options.map(function (o) { return '<button type="button" class="choice" data-v="' + A.esc(o) + '">' + A.esc(o) + '</button>'; }).join('') +
              '</div></div>';
       } else if (f.type === 'photos') {
-        h += '<div class="field"><label>' + A.esc(f.header) + star + '</label><div id="pk-' + f.key + '"></div>' +
+        h += '<div class="field"><label>' + A.esc(f.header) + (f.key === 'BILL_PHOTO' ? ' <span class="muted small">(Busy wale bill mein zarurat nahi)</span>' : star) + '</label><div id="pk-' + f.key + '"></div>' +
              (f.key === 'PACKING_PHOTOS' ? '<div class="hint">Alag-alag angle se photo lo, taaki pcs aur packing saaf dikhe.</div>' : '') + '</div>';
         if (f.key === 'PACKING_PHOTOS') {
           h += '<div class="field"><label>Packing Video</label><div id="vk-PACKING"></div>' +
@@ -2141,7 +2141,9 @@ window.O2D = window.O2D || {};
       } else {
         const ph = f.key === 'TRANSPORTER' ? 'Jaise: Umesh Sah Transport' : (f.key === 'BILL_NUMBER' ? 'Jaise: L/543' : '');
         h += '<div class="field"><label>' + A.esc(f.header) + star + '</label>' +
-             '<input class="input" id="in-' + f.key + '" placeholder="' + A.esc(ph) + '" autocomplete="off">' + '</div>';
+             '<input class="input" id="in-' + f.key + '" placeholder="' + A.esc(ph) + '" autocomplete="off">' +
+             (f.key === 'BILL_NUMBER' ? '<div class="hint">Busy mein bill ban gaya hai? Neeche list se bill pe tap karo — photo ki zarurat nahi, PDF apne aap banegi.</div><div id="busy-bills" style="margin-top:8px"></div>' : '') +
+             '</div>';
       }
     });
 
@@ -2196,6 +2198,29 @@ window.O2D = window.O2D || {};
         });
       }
     });
+    // Busy ke naye bill (pichhle 3 din, jo kisi order pe nahi lage) — tap = bill number bhar jaaye
+    const bb = A.$('#busy-bills', box);
+    if (bb) {
+      bb.innerHTML = '<div class="muted small">Busy ke bill la rahe hain...</div>';
+      A.api('busyBills', {}).then(function (r) {
+        const list = (r && r.bills) || [];
+        if (!list.length) { bb.innerHTML = '<div class="muted small">Busy mein abhi koi naya bill nahi mila.</div>'; return; }
+        const t = function (ms) { const x = new Date(ms); return x.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) + ' ' + x.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }); };
+        bb.innerHTML = '<div class="small" style="font-weight:600;margin-bottom:4px">Busy ke naye bill</div>' +
+          list.map(function (b, i) {
+            return '<button type="button" class="choice" data-bb="' + i + '" style="display:block;width:100%;text-align:left;margin-bottom:6px">' +
+              '<b>' + A.esc(b.no) + '</b> · ' + A.esc(b.party || '') + (b.cash ? '' : '') +
+              '<br><span class="muted small">₹' + Number(b.total || 0).toLocaleString('en-IN') + ' · ' + t(b.at) + '</span></button>';
+          }).join('');
+        A.$$('[data-bb]', bb).forEach(function (btn) {
+          btn.onclick = function () {
+            const b = list[+btn.getAttribute('data-bb')];
+            A.$('#in-BILL_NUMBER', box).value = b.no;
+            A.$$('[data-bb]', bb).forEach(function (x) { x.classList.toggle('on', x === btn); });
+          };
+        });
+      }).catch(function () { bb.innerHTML = ''; });
+    }
     if (A.$('#vk-PACKING', box)) {
       state.videos = A.videoPicker(A.$('#vk-PACKING', box), { orderId: d.orderId, max: 3 });   // video ki MB / time ki koi limit nahi
     }
