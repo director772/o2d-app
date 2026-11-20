@@ -152,3 +152,15 @@ export async function recentFreeBills(env, usedKeys) {
 }
 
 export function isCash(b) { return CASH_CODES.indexOf(Number(b.party_code)) >= 0 || /^cash\b/i.test(String(b.party || '')); }
+
+/**
+ * Bill number type karte hi dhoondho: poora number ("L-26-27/2388") ya sirf aakhri ank ("2388").
+ * Sirf hamari D1 (busy_bills) — Busy DB nahi padhna padta.
+ */
+export async function searchBills(env, q) {
+  const k = nkey(q);
+  if (k.length < 3) return [];
+  const r = await env.DB.prepare('SELECT no, nkey, party, party_code, at, total, order_id FROM busy_bills WHERE deleted = 0 AND (nkey = ? OR nkey LIKE ?) ORDER BY (nkey = ?) DESC, at DESC LIMIT 6')
+    .bind(k, '%' + k, k).all();
+  return (r.results || []).map((b) => ({ no: b.no, nkey: b.nkey, party: b.party, cash: isCash(b), at: b.at, total: b.total, exact: b.nkey === k }));
+}

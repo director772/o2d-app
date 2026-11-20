@@ -288,6 +288,18 @@ function sameCity(c, t) {
   return false;
 }
 
+/** Bill key → kis order pe laga hai */
+export function billOwners(M) {
+  const out = {};
+  M.orders.forEach((o) => {
+    if (o.cancelled) return;
+    const b = stateStep(o, 'INVOICE');
+    const k = b && b.fields && b.fields.BILL_NUMBER ? String(b.fields.BILL_NUMBER).toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
+    if (k) out[k] = o.orderId;
+  });
+  return out;
+}
+
 /** Bill numbers jo kisi order pe lage hain (cancel wale chhod ke) */
 export function usedBillKeys(M) {
   const out = new Set();

@@ -60,7 +60,8 @@ export default {
   async scheduled(event, env, ctx) {
     await ensureTables(env);
     ctx.waitUntil(ringCron(env).catch(() => {}));   // phone ki ghanti — saath-saath
-    try { await busyCron(env); } catch (e) { await setMeta(env, 'busyError', String(e && e.message || e)).catch(() => {}); }
+    try { await busyCron(env); if (await getMeta(env, 'busyError')) await setMeta(env, 'busyError', ''); }
+    catch (e) { await setMeta(env, 'busyError', String(e && e.message || e)).catch(() => {}); }
     await processJobs(env);
     await importFromSheet(env, false);
   }
@@ -133,6 +134,12 @@ async function handleApi(request, env, ctx) {
       case 'search': return reply(core.searchOrders(M, payload.query, now));
       case 'orderDetail': return reply(core.orderDetail(M, payload.orderId, a, now));
       case 'busyBills': return reply({ bills: await busy.recentFreeBills(env, core.usedBillKeys(M)) });
+      case 'busyFind': {
+        const list = await busy.searchBills(env, payload.q);
+        const usedBy = core.billOwners(M);
+        list.forEach((b) => { b.usedBy = usedBy[b.nkey] && usedBy[b.nkey] !== payload.orderId ? usedBy[b.nkey] : ''; });
+        return reply({ bills: list });
+      }
       case 'details': {
         const out = {};
         (payload.orderIds || []).slice(0, 30).forEach((id) => { try { out[id] = core.orderDetail(M, id, a, now); } catch (e) { /* chhodo */ } });
@@ -442,10 +449,12 @@ async function status(env) {
   const g = async (k) => getMeta(env, k);
   const pend = await env.DB.prepare("SELECT COUNT(*) AS n FROM jobs WHERE status IN ('wait','retry')").first();
   const failed = await env.DB.prepare("SELECT COUNT(*) AS n FROM jobs WHERE status = 'fail'").first();
+  const lastFail = await env.DB.prepare("SELECT label, order_id, actor, error, created FROM jobs WHERE status = 'fail' ORDER BY id DESC LIMIT 3").all();
   const cnt = await env.DB.prepare('SELECT COUNT(*) AS n FROM orders').first();
   const t = async (k) => { const v = await g(k); return v && Number(v) ? new Date(Number(v)).toISOString() : null; };
   return {
     orders: cnt ? cnt.n : 0, sheetMeinJaneBaaki: pend ? pend.n : 0, failJobs: failed ? failed.n : 0,
+    failList: (lastFail.results || []).map((j) => ({ kaam: j.label, order: j.order_id, kisne: j.actor, galti: j.error, kab: new Date(j.created).toISOString() })),
     sheetSeLiya: await t('importedAt'), lastCheck: await t('checkedAt'), error: (await g('lastError')) || '',
     busy: env.BUSY ? { seq: await g('busySeq'), bills: ((await env.DB.prepare('SELECT COUNT(*) AS n FROM busy_bills').first()) || {}).n, juda: ((await env.DB.prepare('SELECT COUNT(*) AS n FROM busy_bills WHERE order_id IS NOT NULL').first()) || {}).n, error: (await g('busyError')) || '' } : 'jude nahi'
   };

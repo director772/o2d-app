@@ -2142,7 +2142,7 @@ window.O2D = window.O2D || {};
         const ph = f.key === 'TRANSPORTER' ? 'Jaise: Umesh Sah Transport' : (f.key === 'BILL_NUMBER' ? 'Jaise: L/543' : '');
         h += '<div class="field"><label>' + A.esc(f.header) + star + '</label>' +
              '<input class="input" id="in-' + f.key + '" placeholder="' + A.esc(ph) + '" autocomplete="off">' +
-             (f.key === 'BILL_NUMBER' ? '<div class="hint">Busy mein bill ban gaya hai? Neeche list se bill pe tap karo — photo ki zarurat nahi, PDF apne aap banegi.</div><div id="busy-bills" style="margin-top:8px"></div>' : '') +
+             (f.key === 'BILL_NUMBER' ? '<div id="busy-find" style="margin-top:6px"></div><div class="hint">Bill number (ya sirf aakhri ank, jaise 2388) likho — Busy se bill apne aap aa jaayega. Photo ki zarurat nahi, PDF apne aap banegi.</div><div id="busy-bills" style="margin-top:8px"></div>' : '') +
              '</div>';
       }
     });
@@ -2198,6 +2198,50 @@ window.O2D = window.O2D || {};
         });
       }
     });
+    // Bill number likhte hi Busy mein dhoondho (poora number ya aakhri ank)
+    const bf = A.$('#busy-find', box), bIn = A.$('#in-BILL_NUMBER', box);
+    if (bf && bIn) {
+      let tmr = null, seq = 0;
+      const money = function (n) { return '₹' + Number(n || 0).toLocaleString('en-IN'); };
+      const when = function (ms) { const x = new Date(ms); return x.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) + ' ' + x.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }); };
+      const pick = function (b) {
+        bIn.value = b.no;
+        bf.innerHTML = '<div class="note" style="border-left:4px solid var(--green)">✓ <b>Busy mein mila:</b> ' + A.esc(b.no) + '<br>' +
+          A.esc(b.party || '') + ' · ' + money(b.total) + ' · ' + when(b.at) +
+          '<br><span class="small">Photo ki zarurat nahi — Save dabao, PDF apne aap banegi.</span></div>';
+      };
+      const search = function () {
+        const q = bIn.value.trim();
+        const my = ++seq;
+        if (q.replace(/[^A-Za-z0-9]/g, '').length < 3) { bf.innerHTML = ''; return; }
+        bf.innerHTML = '<div class="muted small">Busy mein dhoondh rahe hain...</div>';
+        A.api('busyFind', { q: q, orderId: d.orderId }).then(function (r) {
+          if (my !== seq) return;
+          const list = (r && r.bills) || [];
+          if (!list.length) {
+            bf.innerHTML = '<div class="note err">Busy mein yeh bill nahi mila. Bill Busy mein save hua hai? Save hone ke 1 minute baad yahan aata hai. Nahi mila toh bill ki photo daal ke save karo.</div>';
+            return;
+          }
+          const exact = list.filter(function (b) { return b.exact; })[0];
+          if (exact && exact.usedBy) {
+            bf.innerHTML = '<div class="note err">Yeh bill pehle se order <b>' + A.esc(exact.usedBy) + '</b> pe laga hai.</div>';
+            return;
+          }
+          if (exact && exact.no === q) { pick(exact); return; }
+          bf.innerHTML = '<div class="small" style="font-weight:600;margin-bottom:4px">Busy mein mile — sahi bill pe tap karo</div>' +
+            list.map(function (b, i) {
+              return '<button type="button" class="choice" data-bf="' + i + '" style="display:block;width:100%;text-align:left;margin-bottom:6px"' + (b.usedBy ? ' disabled' : '') + '>' +
+                '<b>' + A.esc(b.no) + '</b> · ' + A.esc(b.party || '') +
+                '<br><span class="muted small">' + money(b.total) + ' · ' + when(b.at) + (b.usedBy ? ' · order ' + A.esc(b.usedBy) + ' pe laga hai' : '') + '</span></button>';
+            }).join('');
+          A.$$('[data-bf]', bf).forEach(function (btn) {
+            btn.onclick = function () { pick(list[+btn.getAttribute('data-bf')]); };
+          });
+        }).catch(function () { if (my === seq) bf.innerHTML = ''; });
+      };
+      bIn.addEventListener('input', function () { clearTimeout(tmr); tmr = setTimeout(search, 450); });
+    }
+
     // Busy ke naye bill (pichhle 3 din, jo kisi order pe nahi lage) — tap = bill number bhar jaaye
     const bb = A.$('#busy-bills', box);
     if (bb) {
@@ -2217,6 +2261,7 @@ window.O2D = window.O2D || {};
             const b = list[+btn.getAttribute('data-bb')];
             A.$('#in-BILL_NUMBER', box).value = b.no;
             A.$$('[data-bb]', bb).forEach(function (x) { x.classList.toggle('on', x === btn); });
+            if (bf) bf.innerHTML = '<div class="note" style="border-left:4px solid var(--green)">✓ <b>Busy ka bill chuna:</b> ' + A.esc(b.no) + ' · ' + A.esc(b.party || '') + '<br><span class="small">Photo ki zarurat nahi — Save dabao, PDF apne aap banegi.</span></div>';
           };
         });
       }).catch(function () { bb.innerHTML = ''; });
