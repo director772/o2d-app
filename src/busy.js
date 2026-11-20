@@ -25,6 +25,20 @@ export async function ensureBusyTables(env) {
     env.DB.prepare('CREATE INDEX IF NOT EXISTS busy_bills_nkey ON busy_bills (nkey)'),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS busy_bills_at ON busy_bills (at)')
   ]);
+  // "serial" = bill ka aakhri number (L-26-27/2387 → 2387) — staff "B-2387" likhe tab bhi mile
+  try { await env.DB.prepare('ALTER TABLE busy_bills ADD COLUMN serial INTEGER').run(); } catch (e) { /* pehle se hai */ }
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS busy_bills_serial ON busy_bills (serial)').run();
+  const miss = await env.DB.prepare('SELECT vch, no FROM busy_bills WHERE serial IS NULL LIMIT 2000').all();
+  const rows = (miss.results || []).filter((r) => serialOf(r.no));
+  for (let i = 0; i < rows.length; i += 80) {
+    await env.DB.batch(rows.slice(i, i + 80).map((r) => env.DB.prepare('UPDATE busy_bills SET serial = ? WHERE vch = ?').bind(serialOf(r.no), r.vch)));
+  }
+}
+
+/** Bill ka aakhri number: "L-26-27/2387" → 2387, "B-2387" → 2387, "2387" → 2387 */
+export function serialOf(no) {
+  const m = String(no || '').match(/(\d+)\D*$/);
+  return m ? Number(m[1]) : 0;
 }
 
 /** "L-26-27/2388" → "L262 72388" jaisa milaan ka key (space, -, / sab hata ke, bade akshar) */
@@ -67,9 +81,9 @@ async function saveBills(env, fy, rows) {
     at: billTime(t), total: Number(t.VchAmtBaseCur) || 0
   }));
   const stmts = bills.map((b) => env.DB.prepare(
-    'INSERT INTO busy_bills (vch, fy, no, nkey, party_code, party, at, total, deleted, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?) ' +
-    'ON CONFLICT(vch) DO UPDATE SET fy = excluded.fy, no = excluded.no, nkey = excluded.nkey, party_code = excluded.party_code, party = excluded.party, at = excluded.at, total = excluded.total, deleted = 0'
-  ).bind(b.vch, b.fy, b.no, b.nkey, b.party_code, b.party, b.at, b.total, now));
+    'INSERT INTO busy_bills (vch, fy, no, nkey, party_code, party, at, total, deleted, seen, serial) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?) ' +
+    'ON CONFLICT(vch) DO UPDATE SET fy = excluded.fy, no = excluded.no, nkey = excluded.nkey, party_code = excluded.party_code, party = excluded.party, at = excluded.at, total = excluded.total, deleted = 0, serial = excluded.serial'
+  ).bind(b.vch, b.fy, b.no, b.nkey, b.party_code, b.party, b.at, b.total, now, serialOf(b.no)));
   for (let i = 0; i < stmts.length; i += 80) await env.DB.batch(stmts.slice(i, i + 80));
   return bills;
 }
@@ -124,7 +138,14 @@ export async function syncBusy(env, getMeta, setMeta) {
 export async function findBill(env, billNo) {
   const k = nkey(billNo);
   if (!k) return null;
-  return env.DB.prepare('SELECT * FROM busy_bills WHERE nkey = ? AND deleted = 0 ORDER BY at DESC LIMIT 1').bind(k).first();
+  const exact = await env.DB.prepare('SELECT * FROM busy_bills WHERE nkey = ? AND deleted = 0 ORDER BY at DESC LIMIT 1').bind(k).first();
+  if (exact) return exact;
+  // "B-2387" → Busy ka "L-26-27/2387": aakhri number se — sirf tab jab ek hi bill mile
+  const s = serialOf(billNo);
+  if (!s) return null;
+  const r = await env.DB.prepare('SELECT * FROM busy_bills WHERE serial = ? AND deleted = 0 ORDER BY at DESC LIMIT 2').bind(s).all();
+  const list = r.results || [];
+  return list.length === 1 ? list[0] : null;
 }
 
 /** Bill ki lines (item, qty, rate) — PDF ke liye. Sirf bill jodte waqt ek baar. */
@@ -147,7 +168,7 @@ export async function billItems(env, fy, vch) {
 export async function recentFreeBills(env, usedKeys) {
   const r = await env.DB.prepare('SELECT no, nkey, party, party_code, at, total FROM busy_bills WHERE deleted = 0 AND at >= ? ORDER BY at DESC LIMIT 60')
     .bind(Date.now() - 3 * 86400000).all();
-  return (r.results || []).filter((b) => !usedKeys.has(b.nkey)).slice(0, 25)
+  return (r.results || []).filter((b) => !usedKeys.has(b.nkey) && !usedKeys.has('S' + serialOf(b.no))).slice(0, 25)
     .map((b) => ({ no: b.no, party: b.party, cash: CASH_CODES.indexOf(Number(b.party_code)) >= 0, at: b.at, total: b.total }));
 }
 
@@ -160,7 +181,11 @@ export function isCash(b) { return CASH_CODES.indexOf(Number(b.party_code)) >= 0
 export async function searchBills(env, q) {
   const k = nkey(q);
   if (k.length < 3) return [];
-  const r = await env.DB.prepare('SELECT no, nkey, party, party_code, at, total, order_id FROM busy_bills WHERE deleted = 0 AND (nkey = ? OR nkey LIKE ?) ORDER BY (nkey = ?) DESC, at DESC LIMIT 6')
-    .bind(k, '%' + k, k).all();
-  return (r.results || []).map((b) => ({ no: b.no, nkey: b.nkey, party: b.party, cash: isCash(b), at: b.at, total: b.total, exact: b.nkey === k }));
+  const s = serialOf(q);
+  const r = await env.DB.prepare('SELECT no, nkey, serial, party, party_code, at, total, order_id FROM busy_bills WHERE deleted = 0 AND (nkey = ? OR serial = ? OR nkey LIKE ?) ORDER BY (nkey = ?) DESC, (serial = ?) DESC, at DESC LIMIT 6')
+    .bind(k, s || -1, '%' + k, k, s || -1).all();
+  const list = r.results || [];
+  const bySerial = list.filter((b) => s && b.serial === s);
+  return list.map((b) => ({ no: b.no, nkey: b.nkey, serial: b.serial, party: b.party, cash: isCash(b), at: b.at, total: b.total,
+    exact: b.nkey === k || (bySerial.length === 1 && b.serial === s) }));
 }

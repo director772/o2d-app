@@ -294,8 +294,11 @@ export function billOwners(M) {
   M.orders.forEach((o) => {
     if (o.cancelled) return;
     const b = stateStep(o, 'INVOICE');
-    const k = b && b.fields && b.fields.BILL_NUMBER ? String(b.fields.BILL_NUMBER).toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
+    const raw = b && b.fields && b.fields.BILL_NUMBER ? String(b.fields.BILL_NUMBER) : '';
+    const k = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (k) out[k] = o.orderId;
+    const sm = raw.match(/(\d+)\D*$/);
+    if (sm) out['S' + Number(sm[1])] = o.orderId;               // "B-2387" = Busy ka ".../2387"
   });
   return out;
 }
@@ -306,8 +309,11 @@ export function usedBillKeys(M) {
   M.orders.forEach((o) => {
     if (o.cancelled) return;
     const b = stateStep(o, 'INVOICE');
-    const k = b && b.fields && b.fields.BILL_NUMBER ? String(b.fields.BILL_NUMBER).toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
+    const raw = b && b.fields && b.fields.BILL_NUMBER ? String(b.fields.BILL_NUMBER) : '';
+    const k = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (k) out.add(k);
+    const sm = raw.match(/(\d+)\D*$/);
+    if (sm) out.add('S' + Number(sm[1]));
   });
   return out;
 }

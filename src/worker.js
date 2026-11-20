@@ -137,7 +137,10 @@ async function handleApi(request, env, ctx) {
       case 'busyFind': {
         const list = await busy.searchBills(env, payload.q);
         const usedBy = core.billOwners(M);
-        list.forEach((b) => { b.usedBy = usedBy[b.nkey] && usedBy[b.nkey] !== payload.orderId ? usedBy[b.nkey] : ''; });
+        list.forEach((b) => {
+          const u = usedBy[b.nkey] || usedBy['S' + b.serial] || '';
+          b.usedBy = u && u !== payload.orderId ? u : '';
+        });
         return reply({ bills: list });
       }
       case 'details': {
@@ -155,7 +158,7 @@ async function handleApi(request, env, ctx) {
       let bb = null, jobAction = action, jobPayload = payload;
       if (action === 'submitStep' && p.stepKey === 'INVOICE' && p.input && p.input.fields) {
         bb = await busy.findBill(env, p.input.fields.BILL_NUMBER).catch(() => null);
-        if (bb) p.input.busyBill = { no: bb.no, at: bb.at };
+        if (bb) { p.input.busyBill = { no: bb.no, at: bb.at }; p.input.fields.BILL_NUMBER = bb.no; }   // "B-2387" → Busy ka asli number
       }
       let out;
       try { out = NATIVE_WRITES[action](M, a, p, now); }
@@ -560,7 +563,7 @@ async function busyCron(env) {
   const now = Date.now();
   let any = false;
   for (const b of bills) {
-    if (busy.isCash(b) || used.has(b.nkey)) continue;
+    if (busy.isCash(b) || used.has(b.nkey) || used.has('S' + busy.serialOf(b.no))) continue;
     const row = await env.DB.prepare('SELECT order_id, deleted FROM busy_bills WHERE vch = ?').bind(b.vch).first();
     if (!row || row.order_id || row.deleted) continue;
     const o = core.matchBusyBill(M, b);

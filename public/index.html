@@ -38,7 +38,7 @@
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <style>
   :root {
     /* Company */
@@ -182,7 +182,7 @@
     .tab.active { background: var(--brand-tint); color: var(--brand); }
     .tab.active::before { top: 8px; bottom: 8px; left: -12px; right: auto; width: 3px; height: auto; border-radius: 0 3px 3px 0; }
     .tab .badge { position: static; margin-left: auto; }
-    #view { padding: 28px 32px; }
+    #view { padding: 28px 32px; max-width: 1180px; }
   }
 
   /* ============ BUTTONS ============ */
@@ -379,6 +379,155 @@
   .list-plain { list-style: none; padding: 0; margin: 0; }
   .list-plain li { padding: 12px 0; border-bottom: 1px solid var(--border); }
   .list-plain li:last-child { border-bottom: 0; }
+
+  /* =====================================================================
+     DENIM — RK Garg Jeans ka apna roop
+     Indigo (kachchi jeans) + sunehra dhaaga (silai) + chambray background.
+     Upar wale CSS ke baad aata hai, wahi cheezein naye roop mein.
+     ===================================================================== */
+  :root {
+    --brand: #1C2B4A;        /* indigo — kachchi jeans */
+    --brand-dark: #121D33;
+    --brand-tint: #E4EAF3;
+    --wash: #4A6FA5;         /* dhuli hui jeans */
+    --gold: #D49A3A;         /* silai ka dhaaga */
+    --gold-soft: #F6E9D2;
+    --bg: #EEF2F7;           /* chambray */
+    --surface: #FFFFFF;
+    --border: #DCE3EC;
+    --border-strong: #C3CEDB;
+    --text: #182133;
+    --text-2: #4E5B70;
+    --text-3: #8592A6;
+    --radius: 7px;
+    --radius-lg: 10px;
+    --shadow: 0 1px 0 rgba(28,43,74,.06);
+    --font: 'Archivo', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --stitch: repeating-linear-gradient(90deg, var(--gold) 0 7px, transparent 7px 12px);
+  }
+  body { font-stretch: 100%; letter-spacing: .05px; }
+  .screen-title, .panel-head h3, .group-head h3, .sheet h3, .login-top b, .brand b, .k-val, .st-count { font-stretch: 112%; }
+
+  /* Upar ki patti: indigo + neeche silai */
+  .topbar { background: var(--brand); border-bottom: 0; color: #fff; }
+  .topbar::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--stitch); opacity: .9; }
+  .logo { background: var(--gold); color: var(--brand); box-shadow: none; border-radius: 6px; font-weight: 800; }
+  .brand b { color: #fff; font-weight: 700; }
+  .brand small { color: rgba(255,255,255,.65); }
+  .who { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18); color: #fff; }
+  .who .av { background: var(--gold); color: var(--brand); }
+  .who .rl { color: rgba(255,255,255,.6); }
+
+  /* Phone ke neeche tabs */
+  .tab.active { color: var(--brand); }
+  .tab.active::before { background: var(--gold); }
+
+  /* Computer ka left menu: indigo */
+  @media (min-width: 900px) {
+    .tabs { background: var(--brand-dark); border-right: 0; padding-top: 20px; }
+    .tab { color: rgba(255,255,255,.62); }
+    .tab:hover { background: rgba(255,255,255,.06); color: #fff; }
+    .tab.active { background: rgba(255,255,255,.1); color: #fff; }
+    .tab.active::before { background: var(--gold); }
+  }
+
+  .screen-title { font-size: 24px; font-weight: 700; letter-spacing: -.3px; }
+  .panel { box-shadow: var(--shadow); }
+
+  /* Buttons */
+  .btn { border-radius: var(--radius); font-weight: 600; }
+  .btn-main { background: var(--brand); }
+  .btn-main:hover { background: var(--brand-dark); }
+  .btn-go { background: #1F7A4D; }
+  .input:focus, .select:focus, .textarea:focus, .pin-input:focus { border-color: var(--wash); box-shadow: 0 0 0 3px rgba(74,111,165,.18); }
+  :focus-visible { outline-color: var(--wash); }
+  .choice.on { border-color: var(--brand); background: var(--brand-tint); color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+
+  /* Order ki parchi — kapde ke tag jaisi: Order ID ek chhota tag */
+  .slip { border-radius: var(--radius-lg); padding: 14px 16px 14px 20px; box-shadow: var(--shadow); }
+  .slip::before { width: 5px; }
+  .oid {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; color: var(--brand); letter-spacing: .3px;
+    background: var(--gold-soft); border-radius: 4px 999px 999px 4px; padding: 2px 10px 2px 8px;
+  }
+  .oid::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--gold); }
+  .slip-cust { font-size: 17px; font-weight: 650; }
+  .slip-foot { border-top: 1px dashed var(--border-strong); }
+
+  /* Dashboard ke number */
+  .kpi { box-shadow: var(--shadow); }
+  .kpi .k-val { font-weight: 700; color: var(--brand); }
+
+  /* Login: indigo + silai */
+  .login-top { background: var(--brand); border-bottom: 0; position: relative; }
+  .login-top::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--stitch); }
+  .login-top .logo { background: var(--gold); color: var(--brand); }
+
+  /* ============ HOME: DISPATCH LINE ============ */
+  .home-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .home-top .sum { font-size: 15px; color: var(--text-2); }
+  .home-top .sum b { color: var(--text); font-weight: 700; }
+  .home-top .sum .late { color: var(--red); font-weight: 700; }
+  .new-order { gap: 10px; padding: 0 20px; min-height: 50px; font-size: 16px; }
+  .new-order .plus { width: 24px; height: 24px; border-radius: 50%; background: var(--gold); color: var(--brand); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px; line-height: 1; }
+
+  .line { position: relative; list-style: none; margin: 0; padding: 0; }
+  .station { position: relative; }
+  .st-btn {
+    width: 100%; text-align: left; cursor: pointer; font: inherit; color: inherit;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px;
+    padding: 14px 16px; transition: border-color .12s, box-shadow .12s;
+  }
+  .st-btn:hover { border-color: var(--wash); box-shadow: 0 0 0 3px rgba(74,111,165,.12); }
+  .st-num {
+    width: 34px; height: 34px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; color: var(--brand); background: var(--surface);
+    border: 2px solid var(--brand); position: relative; z-index: 1;
+  }
+  .station.is-empty .st-num { border-color: var(--border-strong); color: var(--text-3); }
+  .station.is-late .st-num { border-color: var(--red); color: var(--red); background: var(--red-bg); }
+  .station.is-soon .st-num { border-color: var(--amber); color: var(--amber); background: var(--amber-bg); }
+  .st-name { font-weight: 650; font-size: 15.5px; line-height: 1.25; }
+  .st-who { font-size: 13px; color: var(--text-2); margin-top: 2px; }
+  .st-right { text-align: right; }
+  .st-count { font-size: 26px; font-weight: 700; line-height: 1; color: var(--brand); }
+  .station.is-empty .st-count { color: var(--text-3); font-size: 15px; font-weight: 600; font-stretch: 100%; }
+  .st-unit { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+  .st-flags { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; flex-wrap: wrap; }
+  .station.is-late .st-btn { border-color: #EBC2BF; }
+
+  /* Phone: upar se neeche, baayein taraf silai ka dhaaga */
+  .line::before {
+    content: ''; position: absolute; left: 33px; top: 30px; bottom: 30px; width: 2px;
+    background: repeating-linear-gradient(180deg, var(--gold) 0 7px, transparent 7px 12px);
+  }
+  .station + .station { margin-top: 10px; }
+
+  /* Computer: baayein se daayein, ek line mein */
+  @media (min-width: 1100px) {
+    .line { display: grid; grid-template-columns: repeat(var(--n, 6), minmax(0, 1fr)); gap: 12px; }
+    .line::before { left: 24px; right: 24px; top: 33px; bottom: auto; width: auto; height: 2px; background: var(--stitch); }
+    .station + .station { margin-top: 0; }
+    .st-btn { grid-template-columns: 1fr; gap: 12px; padding: 16px; height: 100%; align-content: start; }
+    .st-right { text-align: left; }
+    .st-flags { justify-content: flex-start; }
+    .st-count { font-size: 32px; }
+  }
+
+  /* Links (Photo / PDF / Video) */
+  #view a { color: var(--wash); font-weight: 600; text-decoration: none; border-bottom: 1px solid rgba(74,111,165,.35); }
+  #view a:hover { color: var(--brand); border-bottom-color: var(--brand); }
+
+  /* Order detail: steps bhi silai ke dhaage pe */
+  .tl-row { position: relative; }
+  .tl-row:not(:last-child)::after {
+    content: ''; position: absolute; left: 5px; top: 22px; bottom: -14px; width: 2px;
+    background: repeating-linear-gradient(180deg, var(--gold) 0 5px, transparent 5px 9px); opacity: .7;
+  }
+  .tl-dot { position: relative; z-index: 1; box-shadow: 0 0 0 3px var(--surface); }
 </style>
 
 </head>
@@ -1804,56 +1953,53 @@ window.O2D = window.O2D || {};
     render: function (view) {
       clearInterval(timer);
       view.innerHTML =
-        A.pageHead('Kaam', 'Load ho raha hai...', '<button class="btn btn-ghost btn-sm" id="h-ref">Taaza karo</button>') +
+        A.pageHead('Kaam', 'Load ho raha hai...') +
         '<div id="h-body"></div>';
-      A.$('#h-ref', view).onclick = function () { load(true); };
-
-      function tile(opts) {
-        const bad = opts.red ? '<span class="pill red">' + opts.red + ' late</span>'
-                  : (opts.yellow ? '<span class="pill yellow">' + opts.yellow + ' jaldi</span>' : '');
-        return '<button type="button" class="kpi" data-go="' + A.esc(opts.go) + '" data-step="' + A.esc(opts.step || '') + '" ' +
-          'style="text-align:left;cursor:pointer;border-left:4px solid ' + opts.edge + ';width:100%;font:inherit;color:inherit">' +
-          '<div class="row between" style="align-items:flex-start"><div class="k-label" style="font-size:14px;font-weight:600;color:var(--text)">' + A.esc(opts.title) + '</div>' + bad + '</div>' +
-          '<div class="k-val" style="margin-top:6px">' + A.esc(opts.val) + '</div>' +
-          '<div class="muted small">' + A.esc(opts.sub || '') + '</div>' +
-          '</button>';
-      }
 
       function draw(d) {
         if (A.current !== 'home') return;
         A.redCount = d.red;
         A.drawTabs();
-        A.$('.screen-sub', view).textContent = d.total
-          ? A.staff.name + ' · ' + d.total + ' order pending' + (d.red ? ' — ' + d.red + ' late' : '') + ' · ' + d.at
-          : A.staff.name + ' · abhi koi kaam pending nahi · ' + d.at;
+        A.$('.screen-sub', view).textContent = A.staff.name + ', ' + d.at;
 
         let h = '';
         if (d.ghantiBand && d.ghantiBand.length) {
-          h += '<div class="note err" style="margin-bottom:12px">🔕 <b>In staff ki ghanti band hai:</b> ' + A.esc(d.ghantiBand.join(', ')) +
+          h += '<div class="note err" style="margin-bottom:16px">🔕 <b>In staff ki ghanti band hai:</b> ' + A.esc(d.ghantiBand.join(', ')) +
                '<br><span class="small">Kaam late hone pe inke phone pe ghanti nahi bajegi. Inke phone pe app kholo aur "Ghanti chalu karo" dabwao.</span></div>';
         }
-        h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">';
-        if (A.screens.newOrder && d.canNewOrder) {
-          h += '<button type="button" class="kpi" data-go="newOrder" style="text-align:left;cursor:pointer;width:100%;font:inherit;' +
-               'background:var(--brand);color:#fff;border-color:var(--brand)">' +
-               '<div style="font-size:14px;font-weight:600;opacity:.9">Naya Order</div>' +
-               '<div style="font-size:26px;font-weight:700;margin-top:6px">+ Order bharo</div>' +
-               '<div class="small" style="opacity:.8">Customer ka naya order</div></button>';
-        }
-        d.steps.forEach(function (s) {
-          h += tile({
-            go: 'myWork', step: s.step, title: s.label,
-            val: s.count ? s.count + ' pending' : 'Sab ho gaya',
-            sub: (d.who[s.step] || 'Director') + (s.wait ? ' · ' + s.wait + ' maal ka intezaar' : ''),
-            red: s.red, yellow: s.yellow,
-            edge: s.red ? 'var(--red)' : (s.yellow ? 'var(--amber)' : (s.count ? 'var(--green)' : 'var(--border)'))
-          });
+
+        // Upar: kitna kaam baaki + Naya Order
+        h += '<div class="home-top"><div class="sum">' +
+             (d.total ? '<b>' + d.total + ' order</b> aapke kaam ke' + (d.red ? ' — <span class="late">' + d.red + ' late</span>' : '') : 'Abhi aapka koi kaam baaki nahi') +
+             '</div><div class="row" style="gap:10px">' +
+             '<button type="button" class="btn btn-ghost" id="h-ref">Taaza karo</button>' +
+             (A.screens.newOrder && d.canNewOrder ? '<button type="button" class="btn btn-main new-order" data-go="newOrder"><span class="plus">+</span>Naya order bharo</button>' : '') +
+             '</div></div>';
+
+        // Dispatch line: kaam ek ke baad ek (1 → 6), silai ke dhaage pe
+        h += '<ol class="line" style="--n:' + d.steps.length + '">';
+        d.steps.forEach(function (s, i) {
+          const cls = !s.count ? 'is-empty' : (s.red ? 'is-late' : (s.yellow ? 'is-soon' : ''));
+          const flags = (s.red ? '<span class="pill red">' + s.red + ' late</span>' : '') +
+                        (s.yellow ? '<span class="pill yellow">' + s.yellow + ' jaldi karo</span>' : '') +
+                        (s.wait ? '<span class="pill wait">' + s.wait + ' maal ka intezaar</span>' : '');
+          h += '<li class="station ' + cls + '"><button type="button" class="st-btn" data-go="myWork" data-step="' + A.esc(s.step) + '">' +
+               '<span class="st-num">' + (i + 1) + '</span>' +
+               '<span><span class="st-name" style="display:block">' + A.esc(s.label) + '</span>' +
+                 '<span class="st-who" style="display:block">' + A.esc(d.who[s.step] || 'Director') + '</span></span>' +
+               '<span class="st-right">' +
+                 (s.count ? '<span class="st-count" style="display:block">' + s.count + '</span><span class="st-unit" style="display:block">pending</span>'
+                          : '<span class="st-count" style="display:block">Sab ho gaya</span>') +
+                 (flags ? '<span class="st-flags">' + flags + '</span>' : '') +
+               '</span></button></li>';
         });
-        h += '</div>';
+        h += '</ol>';
+
         A.$('#h-body', view).innerHTML = h;
         A.$$('[data-go]', view).forEach(function (b) {
           b.onclick = function () { A.go(b.getAttribute('data-go'), { step: b.getAttribute('data-step') }); };
         });
+        A.$('#h-ref', view).onclick = function () { load(true); };
       }
 
       function load(showLoader) {
@@ -2227,7 +2373,7 @@ window.O2D = window.O2D || {};
             bf.innerHTML = '<div class="note err">Yeh bill pehle se order <b>' + A.esc(exact.usedBy) + '</b> pe laga hai.</div>';
             return;
           }
-          if (exact && exact.no === q) { pick(exact); return; }
+          if (exact) { pick(exact); return; }       // "B-2387" likha → Busy ka "L-26-27/2387" apne aap
           bf.innerHTML = '<div class="small" style="font-weight:600;margin-bottom:4px">Busy mein mile — sahi bill pe tap karo</div>' +
             list.map(function (b, i) {
               return '<button type="button" class="choice" data-bf="' + i + '" style="display:block;width:100%;text-align:left;margin-bottom:6px"' + (b.usedBy ? ' disabled' : '') + '>' +
@@ -2800,8 +2946,8 @@ window.O2D = window.O2D || {};
       } else {
         sub = 'Baaki';
       }
-      h += '<li style="display:flex;gap:12px;align-items:flex-start">' +
-           '<span style="width:12px;height:12px;border-radius:50%;margin-top:5px;flex:none;background:' + dot + '"></span>' +
+      h += '<li class="tl-row" style="display:flex;gap:12px;align-items:flex-start">' +
+           '<span class="tl-dot" style="width:12px;height:12px;border-radius:50%;margin-top:5px;flex:none;background:' + dot + '"></span>' +
            '<div style="min-width:0;flex:1">' +
              '<div class="row between" style="gap:8px"><b style="font-weight:600">' + A.esc(s.label) + '</b>' +
                '<span class="row" style="gap:6px">' +
